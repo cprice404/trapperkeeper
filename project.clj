@@ -3,7 +3,7 @@
   ;; Abort when version ranges or version conflicts are detected in
   ;; dependencies. Also supports :warn to simply emit warnings.
   ;; requires lein 2.2.0+.
-  :pedantic? :abort
+  :pedantic? :warn
   :dependencies [[org.clojure/clojure "1.5.1"]
                  [puppetlabs/kitchensink "0.2.0-SNAPSHOT"]
                  [clj-http "0.5.3" :scope "test"]

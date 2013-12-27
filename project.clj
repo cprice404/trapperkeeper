@@ -7,7 +7,8 @@
   :dependencies [[org.clojure/clojure "1.5.1"]
                  [org.clojure/tools.logging "0.2.6"]
                  [puppetlabs/kitchensink "0.4.0"]
-                 [prismatic/plumbing "0.1.0"]
+                 [prismatic/plumbing "0.2.0-SNAPSHOT" :exclusions [org.clojure/clojure]]
+                 ;[prismatic/plumbing "0.1.1"]
                  [org.clojure/tools.nrepl "0.2.3"]
                  [log4j "1.2.17" :exclusions [javax.mail/mail
                                               javax.jms/jms

@@ -1,27 +1,28 @@
 (ns puppetlabs.trapperkeeper.services
   (:require [plumbing.core :refer [fnk]]
+            [schema.core :as s]
             [puppetlabs.trapperkeeper.app])
   (:import (puppetlabs.trapperkeeper.app TrapperKeeperApp)))
 
-(defn- io->fnk-binding-form
-  "Converts a service's input-output map into a binding-form suitable for
-  passing to a fnk. The binding-form defines the fnk's expected input and
-  output values, and is required to satisfy graph compilation.
-
-  This function is necessary in order to allow for the defservice macro to
-  support arbitrary code in the body. A fnk will attempt to determine what
-  its output-schema is, but will only work if a map is immediately returned
-  from the body. When a map is not immediately returned (i.e. a `let` block
-  around the map), the output-schema must be explicitly provided in the fnk
-  metadata."
-  [io-map]
-  (let [to-output-schema  (fn [provides]
-                            (reduce (fn [m p] (assoc m (keyword p) true))
-                                    {}
-                                    provides))
-        output-schema     (to-output-schema (:provides io-map))]
-    ;; Add an output-schema entry to the depends vector's metadata map
-    (vary-meta (:depends io-map) assoc :output-schema output-schema)))
+;(defn- io->fnk-binding-form
+;  "Converts a service's input-output map into a binding-form suitable for
+;  passing to a fnk. The binding-form defines the fnk's expected input and
+;  output values, and is required to satisfy graph compilation.
+;
+;  This function is necessary in order to allow for the defservice macro to
+;  support arbitrary code in the body. A fnk will attempt to determine what
+;  its output-schema is, but will only work if a map is immediately returned
+;  from the body. When a map is not immediately returned (i.e. a `let` block
+;  around the map), the output-schema must be explicitly provided in the fnk
+;  metadata."
+;  [io-map]
+;  (let [to-output-schema  (fn [provides]
+;                            (reduce (fn [m p] (assoc m (keyword p) true))
+;                                    {}
+;                                    provides))
+;        output-schema     (to-output-schema (:provides io-map))]
+;    ;; Add an output-schema entry to the depends vector's metadata map
+;    (vary-meta (:depends io-map) assoc :output-schema output-schema)))
 
 (defn- validate-io-map!
   "Validates a service's io-map contains the required :depends & :provides keys,
@@ -52,11 +53,15 @@
       {:log (fn [msg] (println msg))})"
   [svc-name io-map & body]
   (validate-io-map! io-map)
-  (let [binding-form (io->fnk-binding-form io-map)]
+  (let [;binding-form (io->fnk-binding-form io-map)
+        output-schema (into {}
+                        (map (fn [p]
+                               [(keyword p) s/Any])
+                             (:provides io-map)))]
     `(fn []
        {~svc-name
-        (fnk
-          ~binding-form
+        (fnk f :- ~output-schema
+          ~(:depends io-map)
           ~@body)})))
 
 (defmacro defservice

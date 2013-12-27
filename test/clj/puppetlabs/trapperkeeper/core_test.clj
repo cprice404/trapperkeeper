@@ -26,7 +26,7 @@
                                     :provides [unused]}
                                    {:unused #()})]
       (is (thrown-with-msg?
-            RuntimeException #"Service function 'bar' not found"
+            RuntimeException #"Service function 'bar' not found in service 'test-service"
             (bootstrap-services-with-empty-config [(test-service) (broken-service)]))))
 
     (let [test-service    (service :test-service

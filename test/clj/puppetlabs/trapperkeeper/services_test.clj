@@ -1,6 +1,7 @@
 (ns puppetlabs.trapperkeeper.services-test
   (:require [clojure.test :refer :all]
             [plumbing.fnk.pfnk :as pfnk]
+            [schema.core :as s]
             [puppetlabs.trapperkeeper.services :refer :all]
             [puppetlabs.trapperkeeper.app :refer [service-graph?]]
             [puppetlabs.trapperkeeper.examples.bootstrapping.test-services :refer [hello-world-service]]
@@ -36,8 +37,11 @@
             depends      (pfnk/input-schema service-fnk)
             provides     (pfnk/output-schema service-fnk)]
         (is (ifn? service-fnk))
-        (is (= depends  {:logging-service {:log true}}))
-        (is (= provides {:hello true})))))
+        (is (nil? (s/check depends {:logging-service {:log (fn [] "hi")}})))
+        (is (not (nil? (s/check depends {:logging-service {:foo "bar"}}))))
+        (is (nil? (s/check provides {:hello (fn [] "hi")})))
+        (is (not (nil? (s/check provides {:foo (fn [] "hi")}))))
+        )))
 
   (testing "services compile correctly and can be called"
     (let [app       (bootstrap-services-with-empty-config [(logging-service) (simple-service)])

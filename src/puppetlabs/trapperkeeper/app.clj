@@ -1,4 +1,5 @@
 (ns puppetlabs.trapperkeeper.app
+  (:import (clojure.lang ExceptionInfo))
   (:require [plumbing.map]
             [plumbing.graph :refer [eager-compile]]))
 
@@ -34,6 +35,39 @@
                                            "be nested maps of keywords to functions.  Found: "
                                            service-graph)))))
 
+(defn parse-missing-required-key
+  ;; TODO docs
+  [m]
+  (let [service-name    (first (keys m))
+        service-fn-name (first (keys (m service-name)))
+        error           (get-in m [service-name service-fn-name])]
+    (if (= error 'missing-required-key)
+      {:service-name (name service-name)
+       :service-fn   (name service-fn-name)})))
+
+(defn handle-prismatic-exception!
+  ;; TODO DOCS
+  [e]
+  (let [data  (ex-data e)]
+    ;; TODO: it seems like we could clean this up using cond-> to get rid of
+    ;;  the repeated calls to `throw e`.
+    (condp = (:error data)
+      :missing-key
+      (if (empty? (:map data))
+        (throw (RuntimeException. (format "Service '%s' not found" (:key data))))
+        (throw (RuntimeException. (format "Service function '%s' not found"
+                                          (name (:key data))))))
+
+      :does-not-satisfy-schema
+      (if-let [error-info (parse-missing-required-key (:failures data))]
+        (throw (RuntimeException. (format "Service function '%s' not found in service '%s'"
+                                          (:service-fn error-info)
+                                          (:service-name error-info))))
+        (throw e))
+
+      :else
+      (throw e))))
+
 (defn compile-graph
   "Given the merged map of services, compile it into a function suitable for instantiation.
   Throws an exception if there is a dependency on a service that is not found in the map."
@@ -42,11 +76,8 @@
    :post [(ifn? %)]}
   (try
     (eager-compile graph-map)
-    (catch IllegalArgumentException e
-      (let [match (re-matches #"(?s)^Failed on keyseq: \[:(.*)\]\. Value is missing\. .*$" (.getMessage e))]
-        (if match
-          (throw (RuntimeException. (format "Service function '%s' not found" (second match))))
-          (throw e))))))
+    (catch ExceptionInfo e
+      (handle-prismatic-exception! e))))
 
 (defn instantiate
   "Given the compiled graph function, instantiate the application. Throws an exception
@@ -56,9 +87,5 @@
    :post [(service-graph? %)]}
   (try
     (graph-fn {})
-    (catch RuntimeException e
-      (if-let [match (re-matches #"^Key (:.*) not found in null$" (.getMessage e))]
-        (throw (RuntimeException. (format "Service '%s' not found" (second match))))
-        (if-let [match (re-matches #"^Key :(.*) not found in .*$" (.getMessage e))]
-          (throw (RuntimeException. (format "Service function '%s' not found" (second match))))
-          (throw e))))))
+    (catch ExceptionInfo e
+      (handle-prismatic-exception! e))))

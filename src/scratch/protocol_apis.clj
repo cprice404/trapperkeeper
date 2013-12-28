@@ -1,5 +1,6 @@
 (ns scratch.protocol-apis
-  (:require [plumbing.core :refer [fnk]]))
+  (:require [plumbing.core :refer [fnk]]
+            [plumbing.graph :as g]))
 
 (defprotocol ServiceLifecycle
   (init [this context]) ;; must return (possibly modified) context map
@@ -69,3 +70,11 @@
 (defmacro defservice
   [svc-name & forms]
   `(def ~svc-name (service ~@forms)))
+
+(defn boot!
+  [services]
+  {:pre [(every? #(satisfies? PrismaticGraphService %) services)]}
+  (let [service-map     (apply merge (map service-graph services))
+        graph           (g/eager-compile service-map)
+        graph-instance  (graph {})]
+    (println "Booted!")))

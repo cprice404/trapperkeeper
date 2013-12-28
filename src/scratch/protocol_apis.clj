@@ -1,4 +1,5 @@
-(ns scratch.protocol-apis)
+(ns scratch.protocol-apis
+  (:require [plumbing.core :refer [fnk]]))
 
 (defprotocol ServiceLifecycle
   (init [this context]) ;; must return (possibly modified) context map
@@ -23,7 +24,7 @@
                (format "Service does not implement required function '%s'" fn-name))))))
 
 (defmacro prot-service
-  [service-protocol-sym & fns]
+  [service-protocol-sym dependencies & fns]
   (let [service-protocol-var  (resolve service-protocol-sym)
         _                     (if-not service-protocol-var
                                 (throw (IllegalArgumentException.
@@ -49,7 +50,13 @@
                              (name (:name (meta (var ServiceLifecycle)))))
     `(reify
        PrismaticGraphService
-       (service-graph [this] {})
+       (~'service-graph [~'this]
+         {~(keyword service-protocol-sym)
+           (fnk ~dependencies
+                ~(reduce
+                   (fn [acc fn-name] (assoc acc (keyword fn-name) `(partial ~fn-name ~'this)))
+                   {}
+                   service-fn-names))})
 
        ServiceLifecycle
        ~@(for [fn-name lifecycle-fn-names]

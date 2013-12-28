@@ -23,7 +23,7 @@
       (throw (IllegalArgumentException.
                (format "Service does not implement required function '%s'" fn-name))))))
 
-(defmacro prot-service
+(defmacro service
   [service-protocol-sym dependencies & fns]
   (let [service-protocol-var  (resolve service-protocol-sym)
         _                     (if-not service-protocol-var
@@ -65,3 +65,7 @@
        ~service-protocol-sym
        ~@(for [fn-name service-fn-names]
            (fns-map (keyword fn-name))))))
+
+(defmacro defservice
+  [svc-name & forms]
+  `(def ~svc-name (service ~@forms)))

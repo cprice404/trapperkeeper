@@ -54,6 +54,9 @@
 (defprotocol Service2
   (service2-fn [this]))
 
+(defprotocol Service3
+  (service3-fn [this]))
+
 (deftest lifecycle-test
   (testing "life cycle functions are called in the correct order"
     (let [call-seq  (atom [])
@@ -66,9 +69,41 @@
                       [[:Service1 service1-fn]]
                       (init [this context] (swap! call-seq conj :init-service2))
                       (startup [this context] (swap! call-seq conj :startup-service2))
-                      (service2-fn [this] (swap! call-seq conj :service2-fn)))]
+                      (service2-fn [this] (swap! call-seq conj :service2-fn)))
+          service3  (service Service3
+                       [[:Service2 service2-fn]]
+                       (init [this context] (swap! call-seq conj :init-service3))
+                       (startup [this context] (swap! call-seq conj :startup-service3))
+                       (service3-fn [this] (swap! call-seq conj :service3-fn)))]
       (is (satisfies? PrismaticGraphService service1))
       (is (satisfies? PrismaticGraphService service2))
-      (boot! [service1 service2])
-      (is (= [:init-service1 :init-service2 :startup-service1 :startup-service2]
+      (is (satisfies? PrismaticGraphService service3))
+      (boot! [service1 service3 service2])
+      (is (= [:init-service1 :init-service2 :init-service3
+              :startup-service1 :startup-service2 :startup-service3]
              @call-seq)))))
+
+(deftest dependencies-test
+  (testing "services should be able to call functions in dependency list"
+    (let [service1  (service Service1
+                      []
+                      (init [this context] context)
+                      (startup [this context] context)
+                      (service1-fn [this] "FOO!"))
+          service2  (service Service2
+                      [[:Service1 service1-fn]]
+                      (init [this context] context)
+                      (startup [this context] context)
+                      (service2-fn [this] (str "HELLO " (service1-fn))))
+          graph      (boot! [service1 service2])
+          s2-fn      (get-in graph [:Service2 :service2-fn])]
+      (is (= "HELLO FOO!" (s2-fn)))
+      )))
+
+(deftest context-test
+  (testing "should error if lifecycle function doesn't return context"
+    (is false))
+  (testing "context should be available in subsequent lifecycle functions"
+    (is false))
+  (testing "context should be accessible in service functions"
+    (is false)))

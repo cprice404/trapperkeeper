@@ -57,7 +57,10 @@
          {~(keyword service-protocol-sym)
            (fnk ~dependencies
                 ~(reduce
-                   (fn [acc fn-name] (assoc acc (keyword fn-name) `(partial ~fn-name ~'this)))
+                   ;(fn [acc fn-name] (assoc acc (keyword fn-name) `(partial ~fn-name ~'this)))
+                   (fn [acc fn-name]
+                     (let [[_ [_ & fn-args] & fn-body] (fns-map (keyword fn-name))]
+                       (assoc acc (keyword fn-name) `(fn [~@fn-args] ~@fn-body))))
                    {}
                    service-fn-names))})
 
@@ -65,9 +68,10 @@
        ~@(for [fn-name lifecycle-fn-names]
            (fns-map (keyword fn-name)))
 
-       ~service-protocol-sym
-       ~@(for [fn-name service-fn-names]
-           (fns-map (keyword fn-name))))))
+       ;~service-protocol-sym
+       ;~@(for [fn-name service-fn-names]
+       ;    (fns-map (keyword fn-name)))
+       )))
 
 (defmacro defservice
   [svc-name & forms]
@@ -87,4 +91,5 @@
       (let [s (services-by-id (first graph-entry))]
         (lifecycle-fn s {})))
 
-    (println "Booted!")))
+    (println "Booted!")
+    graph-instance))

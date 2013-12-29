@@ -7,7 +7,8 @@
   (startup [this context])) ;; must return (possibly modified) context map
 
 (defprotocol PrismaticGraphService
-  (service-graph [this])) ;; must return a valid trapperkeeper/prismatic "service graph"
+  (service-graph [this]) ;; must return a valid trapperkeeper/prismatic "service graph"
+  (service-id [this])) ;; returns the identifier that is used to represent the service in the prismatic graph
 
 (defn protocol?
   ;; TODO DOCS
@@ -51,6 +52,7 @@
                              (name (:name (meta (var ServiceLifecycle)))))
     `(reify
        PrismaticGraphService
+       (~'service-id [~'this] ~(keyword service-protocol-sym))
        (~'service-graph [~'this]
          {~(keyword service-protocol-sym)
            (fnk ~dependencies
@@ -74,7 +76,15 @@
 (defn boot!
   [services]
   {:pre [(every? #(satisfies? PrismaticGraphService %) services)]}
-  (let [service-map     (apply merge (map service-graph services))
-        graph           (g/eager-compile service-map)
-        graph-instance  (graph {})]
+  (let [services-by-id  (into {} (map (fn [s] [(service-id s) s]) services))
+        service-map     (apply merge (map service-graph services))
+        graph           (g/->graph service-map)
+        compiled-graph  (g/eager-compile graph)
+        graph-instance  (compiled-graph {})]
+
+    (doseq [lifecycle-fn [init startup]
+            graph-entry graph]
+      (let [s (services-by-id (first graph-entry))]
+        (lifecycle-fn s {})))
+
     (println "Booted!")))

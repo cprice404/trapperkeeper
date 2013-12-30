@@ -1,7 +1,9 @@
-(ns scratch.protocol-apis-test
+(ns scratch.protocol.services-test
   (:require [clojure.test :refer :all]
             [plumbing.fnk.pfnk :as pfnk]
-            [scratch.protocol-apis :refer [ServiceLifecycle PrismaticGraphService defservice service service-graph boot!]]))
+            [scratch.protocol.services :refer [App ServiceLifecycle PrismaticGraphService defservice service service-graph boot! get-service]])
+  (:import [scratch.protocol.services ServiceDefinition])
+  )
 
 (defprotocol HelloService
   (hello [this msg]))
@@ -20,33 +22,41 @@
     (str "HELLO!: " msg)))
 
 (deftest test-satisfies-protocols
-  (testing "satisfies all protocols"
-    (is (satisfies? ServiceLifecycle hello-service))
-    (is (satisfies? PrismaticGraphService hello-service))
-    (is (satisfies? HelloService hello-service)))
+  (testing "creates a record"
+    (is (instance? ServiceDefinition hello-service)))
 
-  (testing "service functions behave as expected"
-    (is (= "HELLO!: yo" (hello hello-service "yo"))))
+  (let [app (boot! [hello-service])]
+    (testing "app satisfies protocol"
+      (is (satisfies? app App)))
 
-  (testing "prismatic fnk is initialized properly"
-    (let [service-graph (service-graph hello-service)]
-      (is (map? service-graph))
+    (let [h-s (get-service app HelloService)]
+      (testing "service satisfise all protocols"
+        (is (satisfies? ServiceLifecycle h-s))
+        (is (satisfies? PrismaticGraphService h-s))
+        (is (satisfies? HelloService h-s)))
 
-      (let [graph-keys (keys service-graph)]
-        (is (= (count graph-keys) 1))
-        (is (= (first graph-keys) :HelloService)))
+      (testing "service functions behave as expected"
+        (is (= "HELLO!: yo" (hello h-s "yo"))))
 
-      (let [service-fnk  (:HelloService service-graph)
-            depends      (pfnk/input-schema service-fnk)
-            provides     (pfnk/output-schema service-fnk)]
-        (is (ifn? service-fnk))
-        (is (= depends  {:foo-service {:foo true} :bar-service {:bar true}}))
-        (is (= provides {:hello true}))
+      (testing "prismatic fnk is initialized properly"
+        (let [service-graph (service-graph h-s)]
+          (is (map? service-graph))
 
-        (let [fnk-instance  (service-fnk {:foo-service {:foo identity}
-                                          :bar-service {:bar identity}})
-               hello-fn     (:hello fnk-instance)]
-          (is (= "HELLO!: hi" (hello-fn "hi"))))))))
+          (let [graph-keys (keys service-graph)]
+            (is (= (count graph-keys) 1))
+            (is (= (first graph-keys) :HelloService)))
+
+          (let [service-fnk  (:HelloService service-graph)
+                depends      (pfnk/input-schema service-fnk)
+                provides     (pfnk/output-schema service-fnk)]
+            (is (ifn? service-fnk))
+            (is (= depends  {:foo-service {:foo true} :bar-service {:bar true}}))
+            (is (= provides {:hello true}))
+
+            (let [fnk-instance  (service-fnk {:foo-service {:foo identity}
+                                              :bar-service {:bar identity}})
+                  hello-fn     (:hello fnk-instance)]
+              (is (= "HELLO!: hi" (hello-fn "hi"))))))))))
 
 (defprotocol Service1
   (service1-fn [this]))
@@ -75,9 +85,6 @@
                        (init [this context] (swap! call-seq conj :init-service3))
                        (startup [this context] (swap! call-seq conj :startup-service3))
                        (service3-fn [this] (swap! call-seq conj :service3-fn)))]
-      (is (satisfies? PrismaticGraphService service1))
-      (is (satisfies? PrismaticGraphService service2))
-      (is (satisfies? PrismaticGraphService service3))
       (boot! [service1 service3 service2])
       (is (= [:init-service1 :init-service2 :init-service3
               :startup-service1 :startup-service2 :startup-service3]
@@ -95,10 +102,9 @@
                       (init [this context] context)
                       (startup [this context] context)
                       (service2-fn [this] (str "HELLO " (service1-fn))))
-          graph      (boot! [service1 service2])
-          s2-fn      (get-in graph [:Service2 :service2-fn])]
-      (is (= "HELLO FOO!" (s2-fn)))
-      )))
+          app         (boot! [service1 service2])
+          s2          (get-service app Service2)]
+      (is (= "HELLO FOO!" (service2-fn s2))))))
 
 (deftest context-test
   (testing "should error if lifecycle function doesn't return context"

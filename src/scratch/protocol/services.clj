@@ -1,6 +1,11 @@
-(ns scratch.protocol-apis
+(ns scratch.protocol.services
   (:require [plumbing.core :refer [fnk]]
             [plumbing.graph :as g]))
+
+(defrecord ServiceDefinition [service-map constructor])
+
+(defprotocol App
+  (get-service [this protocol]))
 
 (defprotocol ServiceLifecycle
   (init [this context]) ;; must return (possibly modified) context map
@@ -79,17 +84,21 @@
 
 (defn boot!
   [services]
-  {:pre [(every? #(satisfies? PrismaticGraphService %) services)]}
-  (let [services-by-id  (into {} (map (fn [s] [(service-id s) s]) services))
-        service-map     (apply merge (map service-graph services))
-        graph           (g/->graph service-map)
-        compiled-graph  (g/eager-compile graph)
-        graph-instance  (compiled-graph {})]
-
-    (doseq [lifecycle-fn [init startup]
-            graph-entry graph]
-      (let [s (services-by-id (first graph-entry))]
-        (lifecycle-fn s {})))
-
-    (println "Booted!")
-    graph-instance))
+  {:pre [(every? #(instance? ServiceDefinition %) services)]}
+  ;(let [services-by-id  (into {} (map (fn [s] [(service-id s) s]) services))
+  ;      service-map     (apply merge (map service-graph services))
+  ;      graph           (g/->graph service-map)
+  ;      compiled-graph  (g/eager-compile graph)
+  ;      graph-instance  (compiled-graph {})]
+  ;
+  ;  (doseq [lifecycle-fn [init startup]
+  ;          graph-entry graph]
+  ;    (let [s (services-by-id (first graph-entry))]
+  ;      (lifecycle-fn s {})))
+  ;
+  ;  (println "Booted!")
+  ;  graph-instance)
+  (reify
+    App
+    (get-service [this protocol] nil))
+  )

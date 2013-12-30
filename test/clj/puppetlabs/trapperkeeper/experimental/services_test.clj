@@ -38,26 +38,6 @@
 
       (testing "service functions behave as expected"
         (is (= "HELLO!: yo" (hello h-s "yo"))))
-
-      ;(testing "prismatic fnk is initialized properly"
-      ;  (let [service-graph (service-graph h-s)]
-      ;    (is (map? service-graph))
-      ;
-      ;    (let [graph-keys (keys service-graph)]
-      ;      (is (= (count graph-keys) 1))
-      ;      (is (= (first graph-keys) :HelloService)))
-      ;
-      ;    (let [service-fnk  (:HelloService service-graph)
-      ;          depends      (pfnk/input-schema service-fnk)
-      ;          provides     (pfnk/output-schema service-fnk)]
-      ;      (is (ifn? service-fnk))
-      ;      (is (= depends  {:foo-service {:foo true} :bar-service {:bar true}}))
-      ;      (is (= provides {:hello true}))
-      ;
-      ;      (let [fnk-instance  (service-fnk {:foo-service {:foo identity}
-      ;                                        :bar-service {:bar identity}})
-      ;            hello-fn     (:hello fnk-instance)]
-      ;        (is (= "HELLO!: hi" (hello-fn "hi")))))))
       )))
 
 (defprotocol Service1
@@ -68,6 +48,28 @@
 
 (defprotocol Service3
   (service3-fn [this]))
+
+(deftest prismatic-functionality-test
+  (testing "prismatic fnk is initialized properly"
+;    (let [service-graph (service-graph h-s)]
+;      (is (map? service-graph))
+;
+;      (let [graph-keys (keys service-graph)]
+;        (is (= (count graph-keys) 1))
+;        (is (= (first graph-keys) :HelloService)))
+;
+;      (let [service-fnk  (:HelloService service-graph)
+;            depends      (pfnk/input-schema service-fnk)
+;            provides     (pfnk/output-schema service-fnk)]
+;        (is (ifn? service-fnk))
+;        (is (= depends  {:foo-service {:foo true} :bar-service {:bar true}}))
+;        (is (= provides {:hello true}))
+;
+;        (let [fnk-instance  (service-fnk {:foo-service {:foo identity}
+;                                          :bar-service {:bar identity}})
+;              hello-fn     (:hello fnk-instance)]
+;          (is (= "HELLO!: hi" (hello-fn "hi"))))))
+    (is false)))
 
 (deftest lifecycle-test
   (testing "life cycle functions are called in the correct order"

@@ -2,7 +2,7 @@
   (:require [plumbing.core :refer [fnk]]
             [plumbing.graph :as g]))
 
-(defrecord ServiceDefinition [service-protocol service-map constructor])
+(defrecord ServiceDefinition [service-id service-map constructor])
 
 (defprotocol App
   (get-service [this protocol]))
@@ -48,8 +48,10 @@
         ;; TODO: verify that there are no functions in fns-map that aren't in one
         ;; of the two protocols
         ]
-      `(ServiceDefinition. ~service-protocol-sym {}
+      `(ServiceDefinition. ~(keyword service-protocol-sym) {}
           (fn []
+            ;(println "Constructing service; protocol:" ~service-protocol-sym
+            ;         "\n\t(" (type ~service-protocol-sym) ")")
             (reify
               PrismaticGraphService
               (~'service-id [~'this] ~(keyword service-protocol-sym))
@@ -130,7 +132,7 @@
     (println "CHECKING SERVICE:" s)
     (println "TYPE of ServiceDefinition:" (type ServiceDefinition))
     (println "is servicedef?" (instance? ServiceDefinition s)))
-  (let [services-by-id (into {} (map (fn [sd] [(:service-protocol sd) ((:constructor sd))]) services))
+  (let [services-by-id (into {} (map (fn [sd] [(:service-id sd) ((:constructor sd))]) services))
         _              (println "SERVICES BY ID:" services-by-id)
         service-map    (apply merge (map service-graph (vals services-by-id)))
         _              (println "SERVICE MAP:" service-map)
@@ -139,7 +141,12 @@
         graph-instance (compiled-graph {})
         app            (reify
                          App
-                         (get-service [this protocol] (services-by-id protocol)))]
+                         (get-service [this protocol] (services-by-id (keyword protocol))))]
+
+    (doseq [lifecycle-fn [init startup]
+            graph-entry  graph]
+      (let [s (services-by-id (first graph-entry))]
+        (lifecycle-fn s {})))
     app))
   ;(let [services-by-id  (into {} (map (fn [s] [(service-id s) s]) services))
   ;      service-map     (apply merge (map service-graph services))

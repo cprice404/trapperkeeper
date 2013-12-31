@@ -30,7 +30,7 @@
     (testing "app satisfies protocol"
       (is (satisfies? App app)))
 
-    (let [h-s (get-service app HelloService)]
+    (let [h-s (get-service app :HelloService)]
       (testing "service satisfise all protocols"
         (is (satisfies? ServiceLifecycle h-s))
         (is (satisfies? PrismaticGraphService h-s))
@@ -49,6 +49,8 @@
 (defprotocol Service3
   (service3-fn [this]))
 
+;; TODO: might be nice to move all of the prismatic-specific tests
+;; into a separate namespace, and only keep api-level tests here.
 (deftest prismatic-functionality-test
   (testing "prismatic fnk is initialized properly"
     (let [service1  (service Service1
@@ -62,8 +64,8 @@
                        (startup [this context] context)
                        (service2-fn [this] "Bar!"))
           app       (boot! [service1 service2])
-          s1-graph  (service-graph (get-service app Service1))
-          s2-graph  (service-graph (get-service app Service2))]
+          s1-graph  (service-graph (get-service app :Service1))
+          s2-graph  (service-graph (get-service app :Service2))]
       (is (map? s1-graph))
       (let [graph-keys (keys s1-graph)]
         (is (= (count graph-keys) 1))
@@ -149,8 +151,11 @@
                       (service2-fn [this] (str "HELLO")))
           _           (println "SERVICES:" [service1 service2])
           app         (boot! [service1 service2])
-          s2          (get-service app Service2)]
-      (is (= "HELLO FOO!" (service2-fn s2))))))
+          s2          (get-service app :Service2)]
+      (is (= "HELLO FOO!" (service2-fn s2)))))
+
+  (testing "should be able to call other functions in same service via 'this'"
+    (is false)))
 
 (deftest context-test
   (testing "should error if lifecycle function doesn't return context"

@@ -4,8 +4,7 @@
 (ns puppetlabs.trapperkeeper.experimental.internal.services-test
   (:require [clojure.test :refer :all]
             [plumbing.fnk.pfnk :as pfnk]
-            [puppetlabs.trapperkeeper.experimental.services :refer [App ServiceLifecycle defservice service boot! get-service]])
-  (:import [puppetlabs.trapperkeeper.experimental.services ServiceDefinition]))
+            [puppetlabs.trapperkeeper.experimental.services :refer [service]]))
 
 (defprotocol Service1
   (service1-fn [this]))
@@ -15,44 +14,41 @@
 
 (deftest prismatic-functionality-test
   (testing "prismatic fnk is initialized properly"
-    ;(let [service1  (service Service1
-    ;                   []
-    ;                   (init [this context] context)
-    ;                   (startup [this context] context)
-    ;                   (service1-fn [this] "Foo!"))
-    ;      service2  (service Service2
-    ;                   [[:Service1 service1-fn]]
-    ;                   (init [this context] context)
-    ;                   (startup [this context] context)
-    ;                   (service2-fn [this] "Bar!"))
-    ;      app       (boot! [service1 service2])
-    ;      s1-graph  (service-graph (get-service app :Service1))
-    ;      s2-graph  (service-graph (get-service app :Service2))]
-    ;  (is (map? s1-graph))
-    ;  (let [graph-keys (keys s1-graph)]
-    ;    (is (= (count graph-keys) 1))
-    ;    (is (= (first graph-keys) :Service1)))
-    ;
-    ;  (let [service-fnk  (:Service1 s1-graph)
-    ;        depends      (pfnk/input-schema service-fnk)
-    ;        provides     (pfnk/output-schema service-fnk)]
-    ;    (is (ifn? service-fnk))
-    ;    (is (= depends  {}))
-    ;    (is (= provides {:service1-fn true})))
-    ;
-    ;  (is (map? s2-graph))
-    ;  (let [graph-keys (keys s2-graph)]
-    ;    (is (= (count graph-keys) 1))
-    ;    (is (= (first graph-keys) :Service2)))
-    ;
-    ;  (let [service-fnk  (:Service2 s2-graph)
-    ;        depends      (pfnk/input-schema service-fnk)
-    ;        provides     (pfnk/output-schema service-fnk)
-    ;        fnk-instance (service-fnk {:Service1 {:service1-fn identity}})
-    ;        s2-fn        (:service2-fn fnk-instance)]
-    ;    (is (ifn? service-fnk))
-    ;    (is (= depends  {:Service1 {:service1-fn true}}))
-    ;    (is (= provides {:service2-fn true}))
-    ;    (is (= "Bar!" (s2-fn)))))))
-    (is (not true))
-    ))
+    (let [service1  (service Service1
+                       []
+                       (init [this context] context)
+                       (startup [this context] context)
+                       (service1-fn [this] "Foo!"))
+          service2  (service Service2
+                       [[:Service1 service1-fn]]
+                       (init [this context] context)
+                       (startup [this context] context)
+                       (service2-fn [this] "Bar!"))
+          s1-graph  (:service-map service1)
+          s2-graph  (:service-map service2)]
+      (is (map? s1-graph))
+      (let [graph-keys (keys s1-graph)]
+        (is (= (count graph-keys) 1))
+        (is (= (first graph-keys) :Service1)))
+
+      (let [service-fnk  (:Service1 s1-graph)
+            depends      (pfnk/input-schema service-fnk)
+            provides     (pfnk/output-schema service-fnk)]
+        (is (ifn? service-fnk))
+        (is (= depends  {}))
+        (is (= provides {:service1-fn true})))
+
+      (is (map? s2-graph))
+      (let [graph-keys (keys s2-graph)]
+        (is (= (count graph-keys) 1))
+        (is (= (first graph-keys) :Service2)))
+
+      (let [service-fnk  (:Service2 s2-graph)
+            depends      (pfnk/input-schema service-fnk)
+            provides     (pfnk/output-schema service-fnk)
+            fnk-instance (service-fnk {:Service1 {:service1-fn identity}})
+            s2-fn        (:service2-fn fnk-instance)]
+        (is (ifn? service-fnk))
+        (is (= depends  {:Service1 {:service1-fn true}}))
+        (is (= provides {:service2-fn true}))
+        (is (= "Bar!" (s2-fn)))))))

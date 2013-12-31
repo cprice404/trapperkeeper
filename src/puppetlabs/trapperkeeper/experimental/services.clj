@@ -107,23 +107,35 @@
         ;; TODO: verify that there are no functions in fns-map that aren't in one
         ;; of the two protocols
         ]
-      `(let [service-map#           (into {}
-                                       ~(mapv
-                                          (fn [f]
-                                            (let [[fn-name fn-args & fn-body] f
-                                                  [deps fn-body] (replace-fn-calls (set service-fn-names) (first fn-args) fn-body)]
-                                              (println "F:" f)
-                                              (println "fn-name:" fn-name)
-                                              (println "fn-args:" fn-args)
-                                              (println "fn-body:" fn-body)
-                                              [(keyword fn-name) `(fnk [~@deps] (fn [~@(rest fn-args)] ~@fn-body))]))
-                                          (select-values fns-map (map keyword service-fn-names))))
-             service-graph-instance# ((g/eager-compile service-map#) {})]
-         (ServiceDefinition. ~service-id
+      ;`(let [service-map#           (into {}
+      ;                                 ~(mapv
+      ;                                    (fn [f]
+      ;                                      (let [[fn-name fn-args & fn-body] f
+      ;                                            [deps fn-body] (replace-fn-calls (set service-fn-names) (first fn-args) fn-body)]
+      ;                                        (println "F:" f)
+      ;                                        (println "fn-name:" fn-name)
+      ;                                        (println "fn-args:" fn-args)
+      ;                                        (println "fn-body:" fn-body)
+      ;                                        [(keyword fn-name) `(fnk [~@deps] (fn [~@(rest fn-args)] ~@fn-body))]))
+      ;                                    (select-values fns-map (map keyword service-fn-names))))
+      ;       service-graph-instance# ((g/eager-compile service-map#) {})]
+         `(ServiceDefinition. ~service-id
                              ;; service map for prismatic graph
                              {~service-id
                                (fnk ~(fnk-binding-form dependencies service-fn-names)
-                                    service-graph-instance#)}
+                                    (let [service-map#           (into {}
+                                                                      ~(mapv
+                                                                         (fn [f]
+                                                                           (let [[fn-name fn-args & fn-body] f
+                                                                                 [deps fn-body] (replace-fn-calls (set service-fn-names) (first fn-args) fn-body)]
+                                                                             (println "F:" f)
+                                                                             (println "fn-name:" fn-name)
+                                                                             (println "fn-args:" fn-args)
+                                                                             (println "fn-body:" fn-body)
+                                                                             [(keyword fn-name) `(fnk [~@deps] (fn [~@(rest fn-args)] ~@fn-body))]))
+                                                                         (select-values fns-map (map keyword service-fn-names))))
+                                         service-graph-instance# ((g/eager-compile service-map#) {})]
+                                    service-graph-instance#))}
                                     ;~(reduce
                                     ;   (fn [acc fn-name]
                                     ;     (let [[_ [_ & fn-args] & fn-body] (fns-map (keyword fn-name))]
@@ -159,7 +171,9 @@
                                    )
                                  )
 
-              )))))
+              ))
+         ;)
+      ))
 
 (defmacro defservice
   [svc-name & forms]

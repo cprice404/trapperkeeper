@@ -1,7 +1,7 @@
 (ns puppetlabs.trapperkeeper.experimental.services-test
   (:require [clojure.test :refer :all]
             [plumbing.fnk.pfnk :as pfnk]
-            [puppetlabs.trapperkeeper.experimental.services :refer [App ServiceLifecycle defservice service service-graph boot! get-service]])
+            [puppetlabs.trapperkeeper.experimental.services :refer [App ServiceLifecycle defservice service boot! get-service]])
   (:import [puppetlabs.trapperkeeper.experimental.services ServiceDefinition]))
 
 (defprotocol HelloService
@@ -114,23 +114,34 @@
 
 (deftest dependencies-test
   (testing "services should be able to call functions in dependency list"
-    (let [service1  (service Service1
-                      []
-                      (init [this context] context)
-                      (startup [this context] context)
-                      (service1-fn [this] "FOO!"))
-          service2  (service Service2
-                      [[:Service1 service1-fn]]
-                      (init [this context] context)
-                      (startup [this context] context)
-                      (service2-fn [this] (str "HELLO " (service1-fn))))
-                      ;(service2-fn [this] (str "HELLO")))
-          app         (boot! [service1 service2])
-          s2          (get-service app :Service2)]
-      (is (= "HELLO FOO!" (service2-fn s2)))))
+    (let [service1 (service Service1
+                            []
+                            (init [this context] context)
+                            (startup [this context] context)
+                            (service1-fn [this] "FOO!"))
+          service2 (service Service2
+                            [[:Service1 service1-fn]]
+                            (init [this context] context)
+                            (startup [this context] context)
+                            (service2-fn [this] (str "HELLO " (service1-fn))))
+          ;(service2-fn [this] (str "HELLO")))
+          app (boot! [service1 service2])
+          s2 (get-service app :Service2)]
+      (is (= "HELLO FOO!" (service2-fn s2))))))
 
-  (testing "should be able to call other functions in same service via 'this'"
-    (is (not true))))
+(defprotocol Service4
+  (service4-fn1 [this])
+  (service4-fn2 [this]))
+
+;(deftest service-this-test
+;  (testing "should be able to call other functions in same service via 'this'"
+;    (let [service4  (service Service4
+;                      []
+;                      (service4-fn1 [this] "foo!")
+;                      (service4-fn2 [this] (str (service4-fn1 this) " bar!")))
+;          app       (boot! [service4])
+;          s4        (get-service app :Service4)]
+;      (is (= "foo! bar!" (service4-fn2 s4))))))
 
 (deftest context-test
   (testing "should error if lifecycle function doesn't return context"

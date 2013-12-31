@@ -11,9 +11,9 @@
   (init [this context]) ;; must return (possibly modified) context map
   (startup [this context])) ;; must return (possibly modified) context map
 
-(defprotocol PrismaticGraphService
-  (service-graph [this]) ;; must return a valid trapperkeeper/prismatic "service graph"
-  (service-id [this])) ;; returns the identifier that is used to represent the service in the prismatic graph
+;(defprotocol PrismaticGraphService
+;  (service-graph [this]) ;; must return a valid trapperkeeper/prismatic "service graph"
+;  (service-id [this])) ;; returns the identifier that is used to represent the service in the prismatic graph
 
 (defn protocol?
   ;; TODO DOCS
@@ -32,7 +32,8 @@
 
 (defmacro service
   [service-protocol-sym dependencies & fns]
-  (let [service-protocol-var  (resolve service-protocol-sym)
+  (let [service-id            (keyword service-protocol-sym)
+        service-protocol-var  (resolve service-protocol-sym)
         _                     (if-not service-protocol-var
                                 (throw (IllegalArgumentException.
                                          (format "Unrecognized service protocol '%s'" service-protocol-sym))))
@@ -48,28 +49,45 @@
         ;; TODO: verify that there are no functions in fns-map that aren't in one
         ;; of the two protocols
         ]
-      `(ServiceDefinition. ~(keyword service-protocol-sym) {}
-          (fn []
-            (reify
-              PrismaticGraphService
-              (~'service-id [~'this] ~(keyword service-protocol-sym))
-              (~'service-graph [~'this]
-              {~(keyword service-protocol-sym)
-                (fnk ~dependencies
+      `(ServiceDefinition. ~service-id
+         ;; service map for prismatic graph
+         {~service-id
+            (fnk ~dependencies
+                 ~(reduce
+                    (fn [acc fn-name]
+                      (let [[_ [_ & fn-args] & fn-body] (fns-map (keyword fn-name))]
+                        (assoc acc (keyword fn-name) `(fn [~@fn-args] ~@fn-body))))
+                    {}
+                    service-fn-names))}
+         ;; protocol-based service constructor function
+         (fn [~'graph]
+            (let [~'service-fns (~'graph ~service-id)]
+              (reify
+                ;PrismaticGraphService
+                ;(~'service-id [~'this] ~service-id)
+                ;(~'service-graph [~'this]
+                ; {~service-id
+                ;   (fnk ~dependencies
+                ;
+                ;        ~(reduce
+                ;           (fn [acc fn-name]
+                ;             (let [[_ [_ & fn-args] & fn-body] (fns-map (keyword fn-name))]
+                ;               (assoc acc (keyword fn-name) `(fn [~@fn-args] ~@fn-body))))
+                ;           {}
+                ;           service-fn-names))})
+                ServiceLifecycle
+                ~@(for [fn-name lifecycle-fn-names]
+                    (fns-map (keyword fn-name)))
 
-                            ~(reduce
-                               (fn [acc fn-name]
-                                 (let [[_ [_ & fn-args] & fn-body] (fns-map (keyword fn-name))]
-                                   (assoc acc (keyword fn-name) `(fn [~@fn-args] ~@fn-body))))
-                               {}
-                               service-fn-names))})
-              ServiceLifecycle
-              ~@(for [fn-name lifecycle-fn-names]
-                  (fns-map (keyword fn-name)))
+                ~service-protocol-sym
+                ~@(for [fn-name service-fn-names]
+                    (let [[_ fn-args & _] (fns-map (keyword fn-name))]
+                      (list fn-name fn-args `((~'service-fns ~(keyword fn-name)) ~@(rest fn-args)))))
+                    ;(fns-map (keyword fn-name)))
 
-              ~service-protocol-sym
-              ~@(for [fn-name service-fn-names]
-                  (fns-map (keyword fn-name))))))))
+                    )
+
+              )))))
 
 (defmacro defservice
   [svc-name & forms]
@@ -77,11 +95,14 @@
 
 (defn boot!
   [services]
-  (let [services-by-id (into {} (map (fn [sd] [(:service-id sd) ((:constructor sd))]) services))
-        service-map    (apply merge (map service-graph (vals services-by-id)))
+  (let [service-map    (apply merge (map :service-map services))
         graph          (g/->graph service-map)
         compiled-graph (g/eager-compile graph)
         graph-instance (compiled-graph {})
+        services-by-id (into {} (map
+                                  (fn [sd] [(:service-id sd)
+                                            ((:constructor sd) graph-instance)])
+                                  services))
         app            (reify
                          App
                          (get-service [this protocol] (services-by-id (keyword protocol))))]

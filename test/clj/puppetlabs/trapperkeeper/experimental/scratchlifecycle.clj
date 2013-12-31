@@ -29,8 +29,23 @@
 ;  (boot! [service1 service3 service2])
 ;  (println "CALL SEQ IS: " @call-seq))
 
-(service Service2
-         [[:Service1 service1-fn]]
-         (init [this context] context)
-         (startup [this context] context)
-         (service2-fn [this] (str "HELLO " (service1-fn))))
+;(service Service2
+;         [[:Service1 service1-fn]]
+;         (init [this context] context)
+;         (startup [this context] context)
+;         (service2-fn [this] (str "HELLO " (service1-fn))))
+
+
+(defprotocol Service4
+  (service4-fn1 [this])
+  (service4-fn2 [this]))
+
+(let [service4  (service Service4
+                         []
+                         (init [this context] context)
+                         (startup [this context] context)
+                         (service4-fn1 [this] "foo!")
+                         (service4-fn2 [this] (str (service4-fn1 this) " bar!")))
+      app       (boot! [service4])
+      s4        (get-service app :Service4)]
+  (is (= "foo! bar!" (service4-fn2 s4))))

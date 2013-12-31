@@ -4,10 +4,19 @@
             [clojure.walk :refer [postwalk]]
             [puppetlabs.kitchensink.core :refer [select-values]]))
 
+;; TODO: this could probably be done with a protocol as well,
+;; which might be nicer than the record.  then we could use
+;; `satisfies?` instead of `instance?`, and that seems a bit
+;; more idiomatic...?
 (defrecord ServiceDefinition [service-id service-map constructor])
 
 (defprotocol App
-  (get-service [this protocol]))
+  (get-service [this protocol])
+  ;; TODO: consider breaking this into two protocols.  `get-service` might make
+  ;; sense for end users to call, but service-graph definitely does not (since
+  ;; it is an implementation detail that has to do with prismatic).  It's
+  ;; only here for testing purposes at the moment.
+  (service-graph [this]))
 
 (defprotocol ServiceLifecycle
   (init [this context]) ;; must return (possibly modified) context map
@@ -107,6 +116,13 @@
         ;; TODO: verify that there are no functions in fns-map that aren't in one
         ;; of the two protocols
         ]
+    (check-for-required-fns! fns-map service-fn-names (name service-protocol-sym))
+    (check-for-required-fns! fns-map lifecycle-fn-names
+                             ;; this is silly, but I wanted compile-time checking
+                             ;; for the retrieval of the name string of the
+                             ;; ServiceLifecycle protocol in case the name changes;
+                             ;; could just hard-code the string here.
+                             (name (:name (meta (var ServiceLifecycle)))))
       ;`(let [service-map#           (into {}
       ;                                 ~(mapv
       ;                                    (fn [f]
@@ -193,7 +209,8 @@
                                   services))
         app            (reify
                          App
-                         (get-service [this protocol] (services-by-id (keyword protocol))))]
+                         (get-service [this protocol] (services-by-id (keyword protocol)))
+                         (service-graph [this] graph-instance))]
 
     (doseq [lifecycle-fn [init startup]
             graph-entry  graph]

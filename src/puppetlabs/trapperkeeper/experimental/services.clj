@@ -17,7 +17,15 @@
 ;  (service-graph [this]) ;; must return a valid trapperkeeper/prismatic "service graph"
 ;  (service-id [this])) ;; returns the identifier that is used to represent the service in the prismatic graph
 
-
+(defn fnk-binding-form
+  [depends provides]
+  (let [to-output-schema  (fn [provides]
+                            (reduce (fn [m p] (assoc m (keyword p) true))
+                                    {}
+                                    provides))
+        output-schema     (to-output-schema provides)]
+    ;; Add an output-schema entry to the depends vector's metadata map
+    (vary-meta depends assoc :output-schema output-schema)))
 
 (defn postwalk-with-accumulator
   [matches? replace accumulate form]
@@ -103,7 +111,7 @@
                                        ~(mapv
                                           (fn [f]
                                             (let [[fn-name fn-args & fn-body] f
-                                                  [deps fn-body] (replace-fn-calls #{'fn1} 'this fn-body)]
+                                                  [deps fn-body] (replace-fn-calls (set service-fn-names) (first fn-args) fn-body)]
                                               (println "F:" f)
                                               (println "fn-name:" fn-name)
                                               (println "fn-args:" fn-args)
@@ -114,7 +122,7 @@
          (ServiceDefinition. ~service-id
                              ;; service map for prismatic graph
                              {~service-id
-                               (fnk ~dependencies
+                               (fnk ~(fnk-binding-form dependencies service-fn-names)
                                     service-graph-instance#)}
                                     ;~(reduce
                                     ;   (fn [acc fn-name]
@@ -160,7 +168,9 @@
 (defn boot!
   [services]
   (let [service-map    (apply merge (map :service-map services))
+        _              (println "Service map:" service-map)
         graph          (g/->graph service-map)
+        _              (println "GRAPH: " graph)
         compiled-graph (g/eager-compile graph)
         graph-instance (compiled-graph {})
         services-by-id (into {} (map

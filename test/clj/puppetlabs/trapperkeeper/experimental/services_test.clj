@@ -9,17 +9,10 @@
 
 (defservice hello-service
   HelloService
-  ;[[:foo-service foo]
-  ; [:bar-service bar]]
   []
-  (init [this context]
-    (println "INIT!")
-    context)
-  (startup [this context]
-    (println "STARTUP!")
-    context)
-  (hello [this msg]
-    (str "HELLO!: " msg)))
+  (init [this context] context)
+  (startup [this context] context)
+  (hello [this msg] (str "HELLO!: " msg)))
 
 (deftest test-satisfies-protocols
   (testing "creates a record"
@@ -92,26 +85,6 @@
         (is (= depends  {:Service1 {:service1-fn true}}))
         (is (= provides {:service2-fn true}))
         (is (= "Bar!" (s2-fn)))))))
-;    (let [service-graph (service-graph h-s)]
-;      (is (map? service-graph))
-;
-;      (let [graph-keys (keys service-graph)]
-;        (is (= (count graph-keys) 1))
-;        (is (= (first graph-keys) :HelloService)))
-;
-;      (let [service-fnk  (:HelloService service-graph)
-;            depends      (pfnk/input-schema service-fnk)
-;            provides     (pfnk/output-schema service-fnk)]
-;        (is (ifn? service-fnk))
-;        (is (= depends  {:foo-service {:foo true} :bar-service {:bar true}}))
-;        (is (= provides {:hello true}))
-;
-;        (let [fnk-instance  (service-fnk {:foo-service {:foo identity}
-;                                          :bar-service {:bar identity}})
-;              hello-fn     (:hello fnk-instance)]
-;          (is (= "HELLO!: hi" (hello-fn "hi"))))))
-;    (is false)
-;    ))
 
 (deftest lifecycle-test
   (testing "life cycle functions are called in the correct order"
@@ -149,18 +122,17 @@
                       (startup [this context] context)
                       ;(service2-fn [this] (str "HELLO " (service1-fn))))
                       (service2-fn [this] (str "HELLO")))
-          _           (println "SERVICES:" [service1 service2])
           app         (boot! [service1 service2])
           s2          (get-service app :Service2)]
       (is (= "HELLO FOO!" (service2-fn s2)))))
 
   (testing "should be able to call other functions in same service via 'this'"
-    (is false)))
+    (is (not true))))
 
 (deftest context-test
   (testing "should error if lifecycle function doesn't return context"
-    (is false))
+    (is (not true)))
   (testing "context should be available in subsequent lifecycle functions"
-    (is false))
+    (is (not true)))
   (testing "context should be accessible in service functions"
-    (is false)))
+    (is (not true))))

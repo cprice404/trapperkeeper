@@ -11,12 +11,7 @@
 (defrecord ServiceDefinition [service-id service-map constructor])
 
 (defprotocol App
-  (get-service [this protocol])
-  ;; TODO: consider breaking this into two protocols.  `get-service` might make
-  ;; sense for end users to call, but service-graph definitely does not (since
-  ;; it is an implementation detail that has to do with prismatic).  It's
-  ;; only here for testing purposes at the moment.
-  (service-graph [this]))
+  (get-service [this protocol]))
 
 (defprotocol ServiceLifecycle
   (init [this context]) ;; must return (possibly modified) context map
@@ -209,12 +204,21 @@
                                   services))
         app            (reify
                          App
-                         (get-service [this protocol] (services-by-id (keyword protocol)))
-                         (service-graph [this] graph-instance))]
+                         (get-service [this protocol] (services-by-id (keyword protocol))))
+        context        (atom {})]
 
-    (doseq [lifecycle-fn [init startup]
-            graph-entry  graph]
-      (let [s (services-by-id (first graph-entry))]
-        (lifecycle-fn s {})))
+    (doseq [[lifecycle-fn lifecycle-fn-name]  [[init "init"] [startup "startup"]]
+            graph-entry                       graph]
+      (let [service-id    (first graph-entry)
+            s             (services-by-id service-id)
+            updated-ctxt  (lifecycle-fn s (get @context service-id {}))]
+        (if-not (map? updated-ctxt)
+          (throw (IllegalStateException.
+                   (format
+                     "Lifecycle function '%s' for service '%s' must return a context map (got: %s)"
+                     lifecycle-fn-name
+                     service-id
+                     (pr-str updated-ctxt)))))
+        ))
     app))
 

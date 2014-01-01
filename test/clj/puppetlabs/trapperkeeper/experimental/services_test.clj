@@ -25,8 +25,6 @@
     (let [h-s (get-service app :HelloService)]
       (testing "service satisfise all protocols"
         (is (satisfies? ServiceLifecycle h-s))
-        ;(is (satisfies? PrismaticGraphService h-s))
-        (is (not true)) ;; ^^ revisit and see if there's another way we should be testing something like this
         (is (satisfies? HelloService h-s)))
 
       (testing "service functions behave as expected"
@@ -45,21 +43,22 @@
 (deftest lifecycle-test
   (testing "life cycle functions are called in the correct order"
     (let [call-seq  (atom [])
+          lc-fn     (fn [context action] (swap! call-seq conj action) context)
           service1  (service Service1
                       []
-                      (init [this context] (swap! call-seq conj :init-service1))
-                      (startup [this context] (swap! call-seq conj :startup-service1))
-                      (service1-fn [this] (swap! call-seq conj :service1-fn)))
+                      (init [this context] (lc-fn context :init-service1))
+                      (startup [this context] (lc-fn context :startup-service1))
+                      (service1-fn [this] (lc-fn nil :service1-fn)))
           service2  (service Service2
                       [[:Service1 service1-fn]]
-                      (init [this context] (swap! call-seq conj :init-service2))
-                      (startup [this context] (swap! call-seq conj :startup-service2))
-                      (service2-fn [this] (swap! call-seq conj :service2-fn)))
+                      (init [this context] (lc-fn context :init-service2))
+                      (startup [this context] (lc-fn context :startup-service2))
+                      (service2-fn [this] (lc-fn nil :service2-fn)))
           service3  (service Service3
                        [[:Service2 service2-fn]]
-                       (init [this context] (swap! call-seq conj :init-service3))
-                       (startup [this context] (swap! call-seq conj :startup-service3))
-                       (service3-fn [this] (swap! call-seq conj :service3-fn)))]
+                       (init [this context] (lc-fn context :init-service3))
+                       (startup [this context] (lc-fn context :startup-service3))
+                       (service3-fn [this] (lc-fn nil :service3-fn)))]
       (boot! [service1 service3 service2])
       (is (= [:init-service1 :init-service2 :init-service3
               :startup-service1 :startup-service2 :startup-service3]
@@ -99,8 +98,27 @@
 
 (deftest context-test
   (testing "should error if lifecycle function doesn't return context"
-    (is (not true)))
+    (let [service1 (service Service1
+                      []
+                      (init [this context] "hi")
+                      (startup [this context] context)
+                      (service1-fn [this] "hi"))]
+      (is (thrown-with-msg?
+            IllegalStateException
+            #"Lifecycle function 'init' for service ':Service1' must return a context map \(got: \"hi\"\)"
+            (boot! [service1]))))
+    (let [service1 (service Service1
+                            []
+                            (init [this context] context)
+                            (startup [this context] "hi")
+                            (service1-fn [this] "hi"))]
+      (is (thrown-with-msg?
+            IllegalStateException
+            #"Lifecycle function 'startup' for service ':Service1' must return a context map \(got: \"hi\"\)"
+            (boot! [service1])))))
   (testing "context should be available in subsequent lifecycle functions"
     (is (not true)))
   (testing "context should be accessible in service functions"
+    (is (not true)))
+  (testing "context from other services should not be visible"
     (is (not true))))

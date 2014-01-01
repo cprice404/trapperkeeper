@@ -139,4 +139,17 @@
       (is (= {:foo :bar} @sfn-context))
       (is (= {:foo :bar} (service-context s1)))))
   (testing "context from other services should not be visible"
-    (is (not true))))
+    (let [s2-context (atom nil)
+          service1 (service Service1
+                            []
+                            (init [this context] (assoc context :foo :bar))
+                            (startup [this context] context)
+                            (service1-fn [this] "hi"))
+          service2 (service Service2
+                            [[:Service1 service1-fn]]
+                            (init [this context] context)
+                            (startup [this context] (reset! s2-context (service-context this)))
+                            (service2-fn [this] "hi"))
+
+          app       (boot! [service1 service2])]
+      (is (= {} @s2-context)))))

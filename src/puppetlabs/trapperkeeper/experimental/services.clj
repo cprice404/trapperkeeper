@@ -138,17 +138,20 @@
          `(ServiceDefinition. ~service-id
                              ;; service map for prismatic graph
                              {~service-id
-                               (fnk ~(fnk-binding-form dependencies service-fn-names)
+                               (fnk ~(fnk-binding-form (conj dependencies 'service-context) service-fn-names)
                                     (let [service-map#           (into {}
                                                                       ~(mapv
                                                                          (fn [f]
                                                                            (let [[fn-name fn-args & fn-body] f
-                                                                                 [deps fn-body] (replace-fn-calls (set service-fn-names) (first fn-args) fn-body)]
+                                                                                 [deps fn-body] (replace-fn-calls
+                                                                                                  (set (cons 'service-context service-fn-names))
+                                                                                                  (first fn-args)
+                                                                                                  fn-body)]
                                                                              (println "F:" f)
                                                                              (println "fn-name:" fn-name)
                                                                              (println "fn-args:" fn-args)
                                                                              (println "fn-body:" fn-body)
-                                                                             [(keyword fn-name) `(fnk [~@deps] (fn [~@(rest fn-args)] ~@fn-body))]))
+                                                                             [(keyword fn-name) `(fnk [~@(remove #(= 'service-context %) deps)] (fn [~@(rest fn-args)] ~@fn-body))]))
                                                                          (select-values fns-map (map keyword service-fn-names))))
                                          service-graph-instance# ((g/eager-compile service-map#) {})]
                                     service-graph-instance#))}
@@ -206,7 +209,7 @@
         graph          (g/->graph service-map)
         _              (println "GRAPH: " graph)
         compiled-graph (g/eager-compile graph)
-        graph-instance (compiled-graph {})
+        graph-instance (compiled-graph {:service-context "hi"})
         context        (atom {})
         services-by-id (into {} (map
                                   (fn [sd] [(:service-id sd)

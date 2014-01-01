@@ -35,7 +35,7 @@
             depends      (pfnk/input-schema service-fnk)
             provides     (pfnk/output-schema service-fnk)]
         (is (ifn? service-fnk))
-        (is (= depends  {}))
+        (is (= depends  {:context true}))
         (is (= provides {:service1-fn true})))
 
       (is (map? s2-graph))
@@ -46,9 +46,11 @@
       (let [service-fnk  (:Service2 s2-graph)
             depends      (pfnk/input-schema service-fnk)
             provides     (pfnk/output-schema service-fnk)
-            fnk-instance (service-fnk {:Service1 {:service1-fn identity}})
+            fnk-instance (service-fnk {:Service1 {:service1-fn identity}
+                                       :context (atom {})})
             s2-fn        (:service2-fn fnk-instance)]
         (is (ifn? service-fnk))
-        (is (= depends  {:Service1 {:service1-fn true}}))
+        (is (= depends  {:Service1 {:service1-fn true}
+                         :context true}))
         (is (= provides {:service2-fn true}))
         (is (= "Bar!" (s2-fn)))))))

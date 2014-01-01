@@ -1,6 +1,6 @@
 (ns puppetlabs.trapperkeeper.experimental.services-test
   (:require [clojure.test :refer :all]
-            [puppetlabs.trapperkeeper.experimental.services :refer [App ServiceLifecycle defservice service boot! get-service]])
+            [puppetlabs.trapperkeeper.experimental.services :refer [App Service ServiceLifecycle defservice service boot! get-service service-context]])
   (:import [puppetlabs.trapperkeeper.experimental.services ServiceDefinition]))
 
 (defprotocol HelloService
@@ -25,6 +25,7 @@
     (let [h-s (get-service app :HelloService)]
       (testing "service satisfise all protocols"
         (is (satisfies? ServiceLifecycle h-s))
+        (is (satisfies? Service h-s))
         (is (satisfies? HelloService h-s)))
 
       (testing "service functions behave as expected"
@@ -126,6 +127,16 @@
       (boot! [service1])
       (is (= {:foo :bar} @startup-context))))
   (testing "context should be accessible in service functions"
-    (is (not true)))
+    (let [sfn-context (atom nil)
+          service1 (service Service1
+                            []
+                            (init [this context] (assoc context :foo :bar))
+                            (startup [this context] context)
+                            ;(service1-fn [this] (reset! sfn-context (service-context this))))
+                            (service1-fn [this] "hi"))
+          app       (boot! [service1])
+          s1        (get-service app :Service1)]
+      ;(is (= {:foo :bar} @sfn-context))
+      (is (= {:foo :bar} (service-context s1)))))
   (testing "context from other services should not be visible"
     (is (not true))))

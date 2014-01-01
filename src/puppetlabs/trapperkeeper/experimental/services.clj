@@ -1,4 +1,5 @@
 (ns puppetlabs.trapperkeeper.experimental.services
+  (:import (java_service_example ServiceImpl))
   (:require [plumbing.core :refer [fnk]]
             [plumbing.graph :as g]
             [clojure.walk :refer [postwalk]]
@@ -7,7 +8,8 @@
 ;; TODO: this could probably be done with a protocol as well,
 ;; which might be nicer than the record.  then we could use
 ;; `satisfies?` instead of `instance?`, and that seems a bit
-;; more idiomatic...?
+;; more idiomatic...?  Plus, using defrecord requires a java
+;; import in order to be referenced from outside of this file
 (defrecord ServiceDefinition [service-id service-map constructor])
 
 (defprotocol App
@@ -16,6 +18,9 @@
 (defprotocol ServiceLifecycle
   (init [this context]) ;; must return (possibly modified) context map
   (startup [this context])) ;; must return (possibly modified) context map
+
+(defprotocol Service
+  (service-context [this]))
 
 ;(defprotocol PrismaticGraphService
 ;  (service-graph [this]) ;; must return a valid trapperkeeper/prismatic "service graph"
@@ -154,7 +159,7 @@
                                     ;   {}
                                     ;   service-fn-names))}
                              ;; protocol-based service constructor function
-                             (fn [~'graph]
+                             (fn [~'graph ~'context]
                                (let [~'service-fns (~'graph ~service-id)]
                                  (reify
                                    ;PrismaticGraphService
@@ -169,6 +174,10 @@
                                    ;               (assoc acc (keyword fn-name) `(fn [~@fn-args] ~@fn-body))))
                                    ;           {}
                                    ;           service-fn-names))})
+
+                                   Service
+                                   (service-context [this] (get ~'@context ~service-id {}))
+
                                    ServiceLifecycle
                                    ~@(for [fn-name lifecycle-fn-names]
                                        (fns-map (keyword fn-name)))
@@ -198,14 +207,14 @@
         _              (println "GRAPH: " graph)
         compiled-graph (g/eager-compile graph)
         graph-instance (compiled-graph {})
+        context        (atom {})
         services-by-id (into {} (map
                                   (fn [sd] [(:service-id sd)
-                                            ((:constructor sd) graph-instance)])
+                                            ((:constructor sd) graph-instance context)])
                                   services))
         app            (reify
                          App
-                         (get-service [this protocol] (services-by-id (keyword protocol))))
-        context        (atom {})]
+                         (get-service [this protocol] (services-by-id (keyword protocol))))]
 
     (doseq [[lifecycle-fn lifecycle-fn-name]  [[init "init"] [startup "startup"]]
             graph-entry                       graph]

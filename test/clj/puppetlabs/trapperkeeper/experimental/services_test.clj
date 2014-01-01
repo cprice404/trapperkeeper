@@ -18,7 +18,6 @@
     (is (instance? ServiceDefinition hello-service)))
 
   (let [app (boot! [hello-service])]
-    (println "APP:" app)
     (testing "app satisfies protocol"
       (is (satisfies? App app)))
 
@@ -29,8 +28,7 @@
         (is (satisfies? HelloService h-s)))
 
       (testing "service functions behave as expected"
-        (is (= "HELLO!: yo" (hello h-s "yo"))))
-      )))
+        (is (= "HELLO!: yo" (hello h-s "yo")))))))
 
 (defprotocol Service1
   (service1-fn [this]))
@@ -108,6 +106,7 @@
             IllegalStateException
             #"Lifecycle function 'init' for service ':Service1' must return a context map \(got: \"hi\"\)"
             (boot! [service1]))))
+
     (let [service1 (service Service1
                             []
                             (init [this context] context)
@@ -117,6 +116,7 @@
             IllegalStateException
             #"Lifecycle function 'startup' for service ':Service1' must return a context map \(got: \"hi\"\)"
             (boot! [service1])))))
+
   (testing "context should be available in subsequent lifecycle functions"
     (let [startup-context (atom nil)
           service1        (service Service1
@@ -126,6 +126,7 @@
                             (service1-fn [this] "hi"))]
       (boot! [service1])
       (is (= {:foo :bar} @startup-context))))
+
   (testing "context should be accessible in service functions"
     (let [sfn-context (atom nil)
           service1 (service Service1
@@ -138,6 +139,13 @@
       (service1-fn s1)
       (is (= {:foo :bar} @sfn-context))
       (is (= {:foo :bar} (service-context s1)))))
+
+  (testing "context works correctly in injected functions"
+    (is (not true)))
+
+  (testing "context works correctly in service functions called by other functions in same service"
+    (is (not true)))
+
   (testing "context from other services should not be visible"
     (let [s2-context (atom nil)
           service1 (service Service1

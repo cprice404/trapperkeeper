@@ -22,10 +22,6 @@
 (defprotocol Service
   (service-context [this]))
 
-;(defprotocol PrismaticGraphService
-;  (service-graph [this]) ;; must return a valid trapperkeeper/prismatic "service graph"
-;  (service-id [this])) ;; returns the identifier that is used to represent the service in the prismatic graph
-
 (defn fnk-binding-form
   [depends provides]
   (let [to-output-schema  (fn [provides]
@@ -49,25 +45,10 @@
 
 (defn is-fn-call?
   [fns service form]
-
-  (let [result (and (seq? form)
-                    (> (count form) 1)
-                    (= service (second form))
-                    (contains? fns (first form)))]
-    (prn "is-fn-call?" fns "|" service "|" form "|" result)
-    (if (and (seq? form) (> (count form) 1))
-      (do
-        ;(println "YO")
-        ;(println "FORM!:" form)
-        (prn "    second form:" (second form))
-        (prn "    service equals second form?" (= service (second form)))
-        (prn "    contains?" (contains? fns (first form)))
-        (prn "    type first form:" (type (first form)))
-        (prn "    type first fns:" (type (first fns)))
-        (prn "    namespace first form:" (namespace (first form)))
-        (prn "    namespace first fns:" (namespace (first fns)))
-        ))
-    result))
+  (and (seq? form)
+       (> (count form) 1)
+       (= service (second form))
+       (contains? fns (first form))))
 
 (defn replace-fn-calls
   [fns service form]
@@ -117,89 +98,47 @@
         ;; of the two protocols
         ]
     (check-for-required-fns! fns-map service-fn-names (name service-protocol-sym))
+    ;; TODO: provide no-op default implementations of lifecycle functions
     (check-for-required-fns! fns-map lifecycle-fn-names
                              ;; this is silly, but I wanted compile-time checking
                              ;; for the retrieval of the name string of the
                              ;; ServiceLifecycle protocol in case the name changes;
                              ;; could just hard-code the string here.
                              (name (:name (meta (var ServiceLifecycle)))))
-      ;`(let [service-map#           (into {}
-      ;                                 ~(mapv
-      ;                                    (fn [f]
-      ;                                      (let [[fn-name fn-args & fn-body] f
-      ;                                            [deps fn-body] (replace-fn-calls (set service-fn-names) (first fn-args) fn-body)]
-      ;                                        (println "F:" f)
-      ;                                        (println "fn-name:" fn-name)
-      ;                                        (println "fn-args:" fn-args)
-      ;                                        (println "fn-body:" fn-body)
-      ;                                        [(keyword fn-name) `(fnk [~@deps] (fn [~@(rest fn-args)] ~@fn-body))]))
-      ;                                    (select-values fns-map (map keyword service-fn-names))))
-      ;       service-graph-instance# ((g/eager-compile service-map#) {})]
-         `(ServiceDefinition. ~service-id
-                             ;; service map for prismatic graph
-                             {~service-id
-                               (fnk ~(fnk-binding-form (conj dependencies 'context) service-fn-names)
-                                    (let [~'service-context      (fn []
-                                                                   (println "###########CONTEXT" ~'context)
-                                                                   (get ~'@context ~service-id))
-                                          service-map#           (into {}
-                                                                      ~(mapv
-                                                                         (fn [f]
-                                                                           (let [[fn-name fn-args & fn-body] f
-                                                                                 [deps fn-body] (replace-fn-calls
-                                                                                                  (set (cons 'service-context service-fn-names))
-                                                                                                  (first fn-args)
-                                                                                                  fn-body)]
-                                                                             (println "F:" f)
-                                                                             (println "fn-name:" fn-name)
-                                                                             (println "fn-args:" fn-args)
-                                                                             (println "fn-body:" fn-body)
-                                                                             [(keyword fn-name) `(fnk [~@(remove #(= 'service-context %) deps)] (fn [~@(rest fn-args)] ~@fn-body))]))
-                                                                         (select-values fns-map (map keyword service-fn-names))))
-                                         service-graph-instance# ((g/eager-compile service-map#) {})]
-                                    service-graph-instance#))}
-                                    ;~(reduce
-                                    ;   (fn [acc fn-name]
-                                    ;     (let [[_ [_ & fn-args] & fn-body] (fns-map (keyword fn-name))]
-                                    ;       (assoc acc (keyword fn-name) `(fn [~@fn-args] ~@fn-body))))
-                                    ;   {}
-                                    ;   service-fn-names))}
-                             ;; protocol-based service constructor function
-                             (fn [~'graph ~'context]
-                               (let [~'service-fns (~'graph ~service-id)]
-                                 (reify
-                                   ;PrismaticGraphService
-                                   ;(~'service-id [~'this] ~service-id)
-                                   ;(~'service-graph [~'this]
-                                   ; {~service-id
-                                   ;   (fnk ~dependencies
-                                   ;
-                                   ;        ~(reduce
-                                   ;           (fn [acc fn-name]
-                                   ;             (let [[_ [_ & fn-args] & fn-body] (fns-map (keyword fn-name))]
-                                   ;               (assoc acc (keyword fn-name) `(fn [~@fn-args] ~@fn-body))))
-                                   ;           {}
-                                   ;           service-fn-names))})
+    `(ServiceDefinition. ~service-id
+       ;; service map for prismatic graph
+       {~service-id
+         (fnk ~(fnk-binding-form (conj dependencies 'context) service-fn-names)
+              (let [~'service-context      (fn [] (get ~'@context ~service-id))
+                    service-map#           (into {}
+                                                ~(mapv
+                                                   (fn [f]
+                                                     (let [[fn-name fn-args & fn-body] f
+                                                           [deps fn-body] (replace-fn-calls
+                                                                            (set (cons 'service-context service-fn-names))
+                                                                            (first fn-args)
+                                                                            fn-body)]
+                                                       [(keyword fn-name) `(fnk [~@(remove #(= 'service-context %) deps)] (fn [~@(rest fn-args)] ~@fn-body))]))
+                                                   (select-values fns-map (map keyword service-fn-names))))
+                   service-graph-instance# ((g/eager-compile service-map#) {})]
+              service-graph-instance#))}
 
-                                   Service
-                                   (service-context [this] (get ~'@context ~service-id {}))
+       ;; protocol-based service constructor function
+       (fn [~'graph ~'context]
+         (let [~'service-fns (~'graph ~service-id)]
+           (reify
+             Service
+             (service-context [this] (get ~'@context ~service-id {}))
 
-                                   ServiceLifecycle
-                                   ~@(for [fn-name lifecycle-fn-names]
-                                       (fns-map (keyword fn-name)))
+             ;; TODO: provide no-op default implementations of lifecycle functions
+             ServiceLifecycle
+             ~@(for [fn-name lifecycle-fn-names]
+                 (fns-map (keyword fn-name)))
 
-                                   ~service-protocol-sym
-                                   ~@(for [fn-name service-fn-names]
-                                       (let [[_ fn-args & _] (fns-map (keyword fn-name))]
-                                         (list fn-name fn-args `((~'service-fns ~(keyword fn-name)) ~@(rest fn-args)))))
-                                   ;(fns-map (keyword fn-name)))
-
-                                   )
-                                 )
-
-              ))
-         ;)
-      ))
+             ~service-protocol-sym
+             ~@(for [fn-name service-fn-names]
+                 (let [[_ fn-args & _] (fns-map (keyword fn-name))]
+                   (list fn-name fn-args `((~'service-fns ~(keyword fn-name)) ~@(rest fn-args)))))))))))
 
 (defmacro defservice
   [svc-name & forms]
@@ -208,9 +147,7 @@
 (defn boot!
   [services]
   (let [service-map    (apply merge (map :service-map services))
-        _              (println "Service map:" service-map)
         graph          (g/->graph service-map)
-        _              (println "GRAPH: " graph)
         compiled-graph (g/eager-compile graph)
         context        (atom {})
         graph-instance (compiled-graph {:context context})

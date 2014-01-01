@@ -219,6 +219,6 @@
                      lifecycle-fn-name
                      service-id
                      (pr-str updated-ctxt)))))
-        ))
+        (swap! context assoc service-id updated-ctxt)))
     app))
 

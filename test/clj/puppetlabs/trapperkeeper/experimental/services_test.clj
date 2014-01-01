@@ -117,7 +117,14 @@
             #"Lifecycle function 'startup' for service ':Service1' must return a context map \(got: \"hi\"\)"
             (boot! [service1])))))
   (testing "context should be available in subsequent lifecycle functions"
-    (is (not true)))
+    (let [startup-context (atom nil)
+          service1        (service Service1
+                            []
+                            (init [this context] (assoc context :foo :bar))
+                            (startup [this context] (reset! startup-context context))
+                            (service1-fn [this] "hi"))]
+      (boot! [service1])
+      (is (= {:foo :bar} @startup-context))))
   (testing "context should be accessible in service functions"
     (is (not true)))
   (testing "context from other services should not be visible"

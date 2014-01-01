@@ -138,8 +138,11 @@
          `(ServiceDefinition. ~service-id
                              ;; service map for prismatic graph
                              {~service-id
-                               (fnk ~(fnk-binding-form (conj dependencies 'service-context) service-fn-names)
-                                    (let [service-map#           (into {}
+                               (fnk ~(fnk-binding-form (conj dependencies 'context) service-fn-names)
+                                    (let [~'service-context      (fn []
+                                                                   (println "###########CONTEXT" ~'context)
+                                                                   (get ~'@context ~service-id))
+                                          service-map#           (into {}
                                                                       ~(mapv
                                                                          (fn [f]
                                                                            (let [[fn-name fn-args & fn-body] f
@@ -209,8 +212,8 @@
         graph          (g/->graph service-map)
         _              (println "GRAPH: " graph)
         compiled-graph (g/eager-compile graph)
-        graph-instance (compiled-graph {:service-context "hi"})
         context        (atom {})
+        graph-instance (compiled-graph {:context context})
         services-by-id (into {} (map
                                   (fn [sd] [(:service-id sd)
                                             ((:constructor sd) graph-instance context)])

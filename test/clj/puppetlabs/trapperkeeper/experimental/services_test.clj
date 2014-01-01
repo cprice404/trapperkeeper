@@ -133,9 +133,9 @@
                             (init [this context] (assoc context :foo :bar))
                             (startup [this context] context)
                             (service1-fn [this] (reset! sfn-context (service-context this))))
-                            ;(service1-fn [this] "hi"))
           app       (boot! [service1])
           s1        (get-service app :Service1)]
+      (service1-fn s1)
       (is (= {:foo :bar} @sfn-context))
       (is (= {:foo :bar} (service-context s1)))))
   (testing "context from other services should not be visible"

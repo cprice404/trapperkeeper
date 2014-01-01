@@ -1,10 +1,10 @@
 ;; This namespace contains tests for the experimental service API
 ;; that are specific to the prismatic implementation
 
-(ns puppetlabs.trapperkeeper.experimental.internal.services-test
+(ns puppetlabs.trapperkeeper.experimental.services-internal-test
   (:require [clojure.test :refer :all]
             [plumbing.fnk.pfnk :as pfnk]
-            [puppetlabs.trapperkeeper.experimental.services :refer [service]]))
+            [puppetlabs.trapperkeeper.experimental.services :refer [service service-map]]))
 
 (defprotocol Service1
   (service1-fn [this]))
@@ -17,15 +17,15 @@
     (let [service1  (service Service1
                        []
                        (init [this context] context)
-                       (startup [this context] context)
+                       (start [this context] context)
                        (service1-fn [this] "Foo!"))
           service2  (service Service2
                        [[:Service1 service1-fn]]
                        (init [this context] context)
-                       (startup [this context] context)
+                       (start [this context] context)
                        (service2-fn [this] "Bar!"))
-          s1-graph  (:service-map service1)
-          s2-graph  (:service-map service2)]
+          s1-graph  (service-map service1)
+          s2-graph  (service-map service2)]
       (is (map? s1-graph))
       (let [graph-keys (keys s1-graph)]
         (is (= (count graph-keys) 1))

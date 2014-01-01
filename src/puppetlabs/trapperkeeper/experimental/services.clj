@@ -2,73 +2,32 @@
   (:import (java_service_example ServiceImpl))
   (:require [plumbing.core :refer [fnk]]
             [plumbing.graph :as g]
-            [clojure.walk :refer [postwalk]]
-            [puppetlabs.kitchensink.core :refer [select-values]]))
-
-;; TODO: this could probably be done with a protocol as well,
-;; which might be nicer than the record.  then we could use
-;; `satisfies?` instead of `instance?`, and that seems a bit
-;; more idiomatic...?  Plus, using defrecord requires a java
-;; import in order to be referenced from outside of this file
-(defrecord ServiceDefinition [service-id service-map constructor])
-
-(defprotocol App
-  (get-service [this protocol]))
+            [puppetlabs.kitchensink.core :refer [select-values]]
+            [puppetlabs.trapperkeeper.experimental.services-internal :refer [fnk-binding-form protocol? protocol-fns->prismatic-fns]]))
 
 (defprotocol ServiceLifecycle
-  (init [this context]) ;; must return (possibly modified) context map
-  (startup [this context])) ;; must return (possibly modified) context map
+  "Lifecycle functions for a service.  All services satisfy this protocol, and
+  the lifecycle functions for each service will be called at the appropriate
+  phase during the application lifecycle."
+  (init [this context] "Initialize the service, given a context map.
+                        Must return the (possibly modified) context map.")
+  (start [this context] "Start the service, given a context map.
+                         Must return the (possibly modified) context map."))
 
 (defprotocol Service
-  (service-context [this]))
+  "Common functions available to all services"
+  (service-context [this] "Returns the context map for this service"))
 
-(defn fnk-binding-form
-  [depends provides]
-  (let [to-output-schema  (fn [provides]
-                            (reduce (fn [m p] (assoc m (keyword p) true))
-                                    {}
-                                    provides))
-        output-schema     (to-output-schema provides)]
-    ;; Add an output-schema entry to the depends vector's metadata map
-    (vary-meta depends assoc :output-schema output-schema)))
+(defprotocol TrapperkeeperApp
+  "Functions available on a trapperkeeper application instance"
+  (get-service [this service-id] "Returns the service with the given service id"))
 
-(defn postwalk-with-accumulator
-  [matches? replace accumulate form]
-  (postwalk
-    (fn [x]
-      (if-not (matches? x)
-        x
-        (do
-          (accumulate x)
-          (replace x))))
-    form))
-
-(defn is-fn-call?
-  [fns service form]
-  (and (seq? form)
-       (> (count form) 1)
-       (= service (second form))
-       (contains? fns (first form))))
-
-(defn replace-fn-calls
-  [fns service form]
-  (let [replace     (fn [form] (cons (first form) (nthrest form 2)))
-        acc         (atom {})
-        accumulate  (fn [form] (swap! acc assoc (first form) true))
-        result      (postwalk-with-accumulator
-                      (partial is-fn-call? fns service)
-                      replace
-                      accumulate
-                      form)]
-    [(keys @acc) result]))
-
-
-(defn protocol?
-  ;; TODO DOCS
-  [p]
-  (and (map? p)
-       (contains? p :on)
-       (instance? Class (resolve (:on p)))))
+(defprotocol ServiceDefinition
+  "A service definition.  This protocol is for internal use only.  The service
+  is not usable until it is instantiated (via `boot!`)."
+  (service-id [this] "An identifier for the service")
+  (service-map [this] "The map of service functions for the graph")
+  (constructor [this] "A constructor function to instantiate the service"))
 
 (defn check-for-required-fns!
   ;; TODO Docs preconds
@@ -79,6 +38,7 @@
                (format "Service does not implement required function '%s'" fn-name))))))
 
 (defmacro service
+  ;; TODO DOCS
   [service-protocol-sym dependencies & fns]
   (let [service-id            (keyword service-protocol-sym)
         service-protocol-var  (resolve service-protocol-sym)
@@ -86,17 +46,20 @@
                                 (throw (IllegalArgumentException.
                                          (format "Unrecognized service protocol '%s'" service-protocol-sym))))
         service-protocol      (var-get (resolve service-protocol-sym))
-        ;; TODO: verify that the service protocol doesn't define any functions
-        ;;  whose names collide with our built-ins.
         _                     (if-not (protocol? service-protocol)
                                 (throw (IllegalArgumentException.
                                          (format "Specified service protocol '%s' does not appear to be a protocol!"))))
         service-fn-names      (map :name (vals (:sigs service-protocol)))
+        ;; TODO: verify that the service protocol doesn't define any functions
+        ;;  whose names collide with our built-ins.
         lifecycle-fn-names    (map :name (vals (:sigs ServiceLifecycle)))
-        fns-map               (reduce (fn [acc f] (assoc acc (keyword (first f)) f)) {} fns)
         ;; TODO: verify that there are no functions in fns-map that aren't in one
         ;; of the two protocols
-        ]
+        fns-map               (reduce (fn [acc f] (assoc acc (keyword (first f)) f)) {} fns)
+        ;; we add 'context' to the dependencies list of all of the services.  we'll
+        ;; use this to inject the service context so it's accessible from service functions
+        dependencies          (conj dependencies 'context)]
+
     (check-for-required-fns! fns-map service-fn-names (name service-protocol-sym))
     ;; TODO: provide no-op default implementations of lifecycle functions
     (check-for-required-fns! fns-map lifecycle-fn-names
@@ -105,40 +68,67 @@
                              ;; ServiceLifecycle protocol in case the name changes;
                              ;; could just hard-code the string here.
                              (name (:name (meta (var ServiceLifecycle)))))
-    `(ServiceDefinition. ~service-id
+
+    ;; let the show begin!  The main thing the macro does is to create an
+    ;; object that satisfies the ServiceDefinition protocol.
+    `(reify ServiceDefinition
+       ;; provide a unique identifier for the service (we just use a keyword
+       ;; representation of the service protocol name
+       (service-id [this] ~service-id)
+
        ;; service map for prismatic graph
-       {~service-id
-         (fnk ~(fnk-binding-form (conj dependencies 'context) service-fn-names)
-              (let [~'service-context      (fn [] (get ~'@context ~service-id))
-                    service-map#           (into {}
-                                                ~(mapv
-                                                   (fn [f]
-                                                     (let [[fn-name fn-args & fn-body] f
-                                                           [deps fn-body] (replace-fn-calls
-                                                                            (set (cons 'service-context service-fn-names))
-                                                                            (first fn-args)
-                                                                            fn-body)]
-                                                       [(keyword fn-name) `(fnk [~@(remove #(= 'service-context %) deps)] (fn [~@(rest fn-args)] ~@fn-body))]))
-                                                   (select-values fns-map (map keyword service-fn-names))))
-                   service-graph-instance# ((g/eager-compile service-map#) {})]
-              service-graph-instance#))}
+       (service-map [this]
+         {~service-id
+           ;; the main service fnk for the app graph.  we add metadata to the fnk
+           ;; arguments list to specify an explicit output schema for the fnk
+           (fnk ~(fnk-binding-form dependencies service-fn-names)
+              ;; create a function that exposes the service context to the service.
+              ;; we use ~' to force literal symbols for this, because we must
+              ;; match the name of the protocol function exactly since that
+              ;; is what the service functions will be written against.
+              (let [~'service-context (fn [] (get ~'@context ~service-id))
+                    ;; here we create an inner graph for this service.  this is
+                    ;; how we allow service functions for this service to call
+                    ;; other functions from this service.
+                    service-map#      (into {}
+                                        ~(vec (let [fns (select-values fns-map (map keyword service-fn-names))
+                                                    fns (protocol-fns->prismatic-fns fns service-fn-names)]
+                                                (for [f fns]
+                                                  [(:name f) `(fnk [~@(:deps f)] (fn [~@(:args f)] ~@(:body f)))]))))
+                    ;; compile the inner graph so that we end up with a map of
+                    ;; regular functions,  which is what the outer graph expects.
+                    s-graph-inst#     ((g/eager-compile service-map#) {})]
+                s-graph-inst#))})
 
        ;; protocol-based service constructor function
-       (fn [~'graph ~'context]
-         (let [~'service-fns (~'graph ~service-id)]
-           (reify
-             Service
-             (service-context [this] (get ~'@context ~service-id {}))
+       (constructor [this]
+         ;; the constructor requires the main app graph and context atom as input
+         (fn [graph# context#]
+           (let [~'service-fns (graph# ~service-id)]
+             ;; now we instantiate the service and define all of its protocol functions
+             (reify
+               Service
+               (service-context [this] (get @context# ~service-id {}))
 
-             ;; TODO: provide no-op default implementations of lifecycle functions
-             ServiceLifecycle
-             ~@(for [fn-name lifecycle-fn-names]
-                 (fns-map (keyword fn-name)))
+               ;; TODO: provide no-op default implementations of lifecycle functions
+               ServiceLifecycle
+               ~@(for [fn-name lifecycle-fn-names]
+                   ;; the lifecycle functions don't require any munging, so
+                   ;; we can just pull them back out of the fns-map
+                   (fns-map (keyword fn-name)))
 
-             ~service-protocol-sym
-             ~@(for [fn-name service-fn-names]
-                 (let [[_ fn-args & _] (fns-map (keyword fn-name))]
-                   (list fn-name fn-args `((~'service-fns ~(keyword fn-name)) ~@(rest fn-args)))))))))))
+               ~service-protocol-sym
+               ~@(for [fn-name service-fn-names]
+                   (let [[_ fn-args & _] (fns-map (keyword fn-name))]
+                     ;; for the service protocol functions, we'll just proxy them to the
+                     ;; functions in the prismatic graph, where all of the dependencies and
+                     ;; such have been taken care of.
+                     `(~fn-name ~fn-args
+                       ;; look up the service fn in the graph
+                       ((~'service-fns ~(keyword fn-name))
+                        ;; remove 'this' from the args that we pass, because it's
+                        ;; implicit at this point and not used in the graph.
+                        ~@(rest fn-args))))))))))))
 
 (defmacro defservice
   [svc-name & forms]
@@ -146,23 +136,40 @@
 
 (defn boot!
   [services]
-  (let [service-map    (apply merge (map :service-map services))
+  {:pre [(every? #(satisfies? ServiceDefinition %) services)]
+   :post [(satisfies? TrapperkeeperApp %)]}
+  (let [service-map    (apply merge (map service-map services))
+        ;; this gives us an ordered graph that we can use to call lifecycle
+        ;; functions in the correct order later
         graph          (g/->graph service-map)
         compiled-graph (g/eager-compile graph)
+        ;; this is the application context for this app instance.  its keys
+        ;; will be the service ids, and values will be maps that represent the
+        ;; context for each individual service
         context        (atom {})
+        ;; when we instantiate the graph, we pass in the context atom.
         graph-instance (compiled-graph {:context context})
+        ;; here we build up a map of all of the services by calling the
+        ;; constructor for each one
         services-by-id (into {} (map
-                                  (fn [sd] [(:service-id sd)
-                                            ((:constructor sd) graph-instance context)])
+                                  (fn [sd] [(service-id sd)
+                                            ((constructor sd) graph-instance context)])
                                   services))
+        ;; finally, create the app instance
         app            (reify
-                         App
+                         TrapperkeeperApp
                          (get-service [this protocol] (services-by-id (keyword protocol))))]
 
-    (doseq [[lifecycle-fn lifecycle-fn-name]  [[init "init"] [startup "startup"]]
+    ;; iterate over the lifecycle functions in order
+    (doseq [[lifecycle-fn lifecycle-fn-name]  [[init "init"] [start "start"]]
+            ;; and iterate over the services, based on the ordered graph so
+            ;; that we know their dependencies are taken into account
             graph-entry                       graph]
+
       (let [service-id    (first graph-entry)
             s             (services-by-id service-id)
+            ;; call the lifecycle function on the service, and keep a reference
+            ;; to the updated context map that it returns
             updated-ctxt  (lifecycle-fn s (get @context service-id {}))]
         (if-not (map? updated-ctxt)
           (throw (IllegalStateException.
@@ -171,6 +178,7 @@
                      lifecycle-fn-name
                      service-id
                      (pr-str updated-ctxt)))))
+        ;; store the updated service context map in the application context atom
         (swap! context assoc service-id updated-ctxt)))
     app))
 

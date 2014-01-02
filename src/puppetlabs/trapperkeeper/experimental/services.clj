@@ -1,6 +1,7 @@
 (ns puppetlabs.trapperkeeper.experimental.services
   (:import (java_service_example ServiceImpl))
-  (:require [plumbing.core :refer [fnk]]
+  (:require [clojure.tools.macro :refer [name-with-attributes]]
+            [plumbing.core :refer [fnk]]
             [plumbing.graph :as g]
             [puppetlabs.kitchensink.core :refer [select-values]]
             [puppetlabs.trapperkeeper.experimental.services-internal :refer [fnk-binding-form protocol? protocol-fns->prismatic-fns]]))
@@ -132,7 +133,8 @@
 
 (defmacro defservice
   [svc-name & forms]
-  `(def ~svc-name (service ~@forms)))
+  (let [[svc-name forms] (name-with-attributes svc-name forms)]
+    `(def ~svc-name (service ~@forms))))
 
 (defn boot!
   [services]

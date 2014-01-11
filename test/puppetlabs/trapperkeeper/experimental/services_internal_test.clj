@@ -4,7 +4,77 @@
 (ns puppetlabs.trapperkeeper.experimental.services-internal-test
   (:require [clojure.test :refer :all]
             [plumbing.fnk.pfnk :as pfnk]
-            [puppetlabs.trapperkeeper.experimental.services :refer [service service-map]]))
+            [puppetlabs.trapperkeeper.experimental.services :refer [service service-map]]
+            [puppetlabs.trapperkeeper.experimental.services-internal :as si]))
+
+(deftest service-forms-test
+  (testing "should support forms that include protocol"
+    (is (= ['Foo [] '()]
+           (si/find-prot-and-deps-forms! '(Foo [])))))
+  (testing "should support forms that do not include protocol"
+    (is (= [nil [] '()]
+           (si/find-prot-and-deps-forms! '([])))))
+  (testing "result should include vector of fn forms if provided"
+    (is (= ['Foo [] '((fn1 [] "fn1") (fn2 [] "fn2"))]
+           (si/find-prot-and-deps-forms!
+             '(Foo [] (fn1 [] "fn1") (fn2 [] "fn2")))))
+    (is (= [nil [] '((fn1 [] "fn1") (fn2 [] "fn2"))]
+           (si/find-prot-and-deps-forms!
+             '([] (fn1 [] "fn1") (fn2 [] "fn2"))))))
+  (testing "should throw exception if the first form is not the protocol symbol or dependency vector"
+    (is (thrown-with-msg?
+          IllegalArgumentException
+          #"Invalid service definition; first form must be protocol or dependency list; found '\"hi\"'"
+          (si/find-prot-and-deps-forms! '("hi" [])))))
+  (testing "should throw exception if the first form is a protocol sym and the second is not a dependency vector"
+    (is (thrown-with-msg?
+          IllegalArgumentException
+          #"Invalid service definition; expected dependency list following protocol, found: '\"hi\"'"
+          (si/find-prot-and-deps-forms! '(Foo "hi")))))
+  (testing "should throw an exception if all remaining forms are not seqs"
+    (is (thrown-with-msg?
+          IllegalArgumentException
+          #"Invalid service definition; expected function definitions following dependency list, invalid value: '\"hi\"'"
+          (si/find-prot-and-deps-forms! '(Foo [] (fn1 [] "fn1") "hi"))))))
+
+(defn local-resolve
+  "TODO: docs"
+  [sym]
+  (ns-resolve
+    'puppetlabs.trapperkeeper.experimental.services-internal-test
+    sym))
+
+(defprotocol EmptyProtocol)
+(def NonProtocolSym "hi")
+
+(deftest protocol-syms-test
+  (testing "should not throw exception if protocol exists"
+    (is (si/protocol?
+          (si/validate-protocol-sym!
+            'EmptyProtocol
+            (local-resolve 'EmptyProtocol)))))
+
+  (testing "should throw exception if service protocol sym is not resolvable"
+    (is (thrown-with-msg?
+          IllegalArgumentException
+          #"Unrecognized service protocol 'UndefinedSym'"
+          (si/validate-protocol-sym! 'UndefinedSym (local-resolve 'UndefinedSym)))))
+
+  (testing "should throw exception if service protocol symbol is resolveable but does not resolve to a protocol"
+    (is (thrown-with-msg?
+          IllegalArgumentException
+          #"Specified service protocol 'NonProtocolSym' does not appear to be a protocol!"
+          (si/validate-protocol-sym! 'NonProtocolSym (local-resolve 'NonProtocolSym))))))
+
+(deftest build-fns-map-test
+  (testing "minimal services may not define functions other than lifecycle functions"
+    (is (thrown-with-msg?
+          IllegalArgumentException
+          #"Service attempts to define function 'foo', but does not provide protocol"
+          (si/build-fns-map! nil [] ['init 'start]
+            '((init [this context] context)
+              (start [this context] context)
+              (foo [this] "foo")))))))
 
 (defprotocol Service1
   (service1-fn [this]))

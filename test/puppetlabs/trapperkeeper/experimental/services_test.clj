@@ -86,7 +86,19 @@
                             (service2-fn [this] (str "HELLO " (service1-fn))))
           app (boot! [service1 service2])
           s2 (get-service app :Service2)]
-      (is (= "HELLO FOO!" (service2-fn s2))))))
+      (is (= "HELLO FOO!" (service2-fn s2)))))
+
+  (testing "lifecycle functions should be able to call injected functions"
+    (let [service1 (service Service1
+                            []
+                            (service1-fn [this] "FOO!"))
+          service2 (service Service2
+                            [[:Service1 service1-fn]]
+                            (init [this context] (service1-fn) context)
+                            (service2-fn [this] "service2"))
+          app (boot! [service1 service2])
+          s2 (get-service app :Service2)]
+      (is (= "service2" (service2-fn s2))))))
 
 (defprotocol Service4
   (service4-fn1 [this])
@@ -105,9 +117,9 @@
 (deftest context-test
   (testing "should error if lifecycle function doesn't return context"
     (let [service1 (service Service1
-                      []
-                      (init [this context] "hi")
-                      (service1-fn [this] "hi"))]
+                            []
+                            (init [this context] "hi")
+                            (service1-fn [this] "hi"))]
       (is (thrown-with-msg?
             IllegalStateException
             #"Lifecycle function 'init' for service ':Service1' must return a context map \(got: \"hi\"\)"
@@ -124,7 +136,7 @@
 
   (testing "context should be available in subsequent lifecycle functions"
     (let [start-context (atom nil)
-          service1        (service Service1
+          service1 (service Service1
                             []
                             (init [this context] (assoc context :foo :bar))
                             (start [this context] (reset! start-context context))
@@ -138,8 +150,8 @@
                             []
                             (init [this context] (assoc context :foo :bar))
                             (service1-fn [this] (reset! sfn-context (service-context this))))
-          app       (boot! [service1])
-          s1        (get-service app :Service1)]
+          app (boot! [service1])
+          s1 (get-service app :Service1)]
       (service1-fn s1)
       (is (= {:foo :bar} @sfn-context))
       (is (= {:foo :bar} (service-context s1)))))
@@ -152,8 +164,8 @@
           service2 (service Service2
                             [[:Service1 service1-fn]]
                             (service2-fn [this] (service1-fn)))
-          app      (boot! [service1 service2])
-          s2       (get-service app :Service2)]
+          app (boot! [service1 service2])
+          s2 (get-service app :Service2)]
       (is (= :bar (service2-fn s2)))))
 
   (testing "context works correctly in service functions called by other functions in same service"
@@ -162,8 +174,8 @@
                             (init [this context] (assoc context :foo :bar))
                             (service4-fn1 [this] ((service-context this) :foo))
                             (service4-fn2 [this] (service4-fn1 this)))
-          app      (boot! [service4])
-          s4       (get-service app :Service4)]
+          app (boot! [service4])
+          s4 (get-service app :Service4)]
       (is (= :bar (service4-fn2 s4)))))
 
   (testing "context from other services should not be visible"
@@ -177,5 +189,31 @@
                             (start [this context] (reset! s2-context (service-context this)))
                             (service2-fn [this] "hi"))
 
-          app       (boot! [service1 service2])]
+          app (boot! [service1 service2])]
       (is (= {} @s2-context)))))
+
+(deftest minimal-services-test
+  (testing "minimal services can be defined without a protocol"
+    (let [call-seq (atom [])
+          service0 (service []
+                            (init [this context]
+                                  (swap! call-seq conj :init)
+                                  (assoc context :foo :bar))
+                            (start [this context]
+                                   (swap! call-seq conj :start)
+                                   (is (= context {:foo :bar}))
+                                   context))]
+      (boot! [service0])
+      (is (= [:init :start] @call-seq))))
+
+  (testing "minimal services can have dependencies"
+    (let [service1 (service Service1
+                            []
+                            (service1-fn [this] "hi"))
+          result   (atom nil)
+          service0 (service [[:Service1 service1-fn]]
+                            (init [this context]
+                                  (reset! result (service1-fn))
+                                  context))]
+          (boot! [service1 service0])
+          (is (= "hi" @result)))))

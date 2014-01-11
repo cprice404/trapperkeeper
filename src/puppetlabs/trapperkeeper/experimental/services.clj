@@ -4,7 +4,7 @@
             [plumbing.core :refer [fnk]]
             [plumbing.graph :as g]
             [puppetlabs.kitchensink.core :refer [select-values]]
-            [puppetlabs.trapperkeeper.experimental.services-internal :refer [fnk-binding-form protocol? protocol-fns->prismatic-fns]]))
+            [puppetlabs.trapperkeeper.experimental.services-internal :as si]))
 
 (defprotocol ServiceLifecycle
   "Lifecycle functions for a service.  All services satisfy this protocol, and
@@ -38,6 +38,7 @@
       (throw (IllegalArgumentException.
                (format "Service does not implement required function '%s'" fn-name))))))
 
+
 (defmacro service
   ;; TODO DOCS
   [service-protocol-sym dependencies & fns]
@@ -47,7 +48,7 @@
                                 (throw (IllegalArgumentException.
                                          (format "Unrecognized service protocol '%s'" service-protocol-sym))))
         service-protocol      (var-get (resolve service-protocol-sym))
-        _                     (if-not (protocol? service-protocol)
+        _                     (if-not (si/protocol? service-protocol)
                                 (throw (IllegalArgumentException.
                                          (format "Specified service protocol '%s' does not appear to be a protocol!"))))
         service-fn-names      (map :name (vals (:sigs service-protocol)))
@@ -57,18 +58,13 @@
         ;; TODO: verify that there are no functions in fns-map that aren't in one
         ;; of the two protocols
         fns-map               (reduce (fn [acc f] (assoc acc (keyword (first f)) f)) {} fns)
+        fns-map               (si/add-default-lifecycle-fns lifecycle-fn-names fns-map)
         ;; we add 'context' to the dependencies list of all of the services.  we'll
         ;; use this to inject the service context so it's accessible from service functions
         dependencies          (conj dependencies 'context)]
 
     (check-for-required-fns! fns-map service-fn-names (name service-protocol-sym))
-    ;; TODO: provide no-op default implementations of lifecycle functions
-    (check-for-required-fns! fns-map lifecycle-fn-names
-                             ;; this is silly, but I wanted compile-time checking
-                             ;; for the retrieval of the name string of the
-                             ;; ServiceLifecycle protocol in case the name changes;
-                             ;; could just hard-code the string here.
-                             (name (:name (meta (var ServiceLifecycle)))))
+    (check-for-required-fns! fns-map lifecycle-fn-names (name (:name (meta (var ServiceLifecycle)))))
 
     ;; let the show begin!  The main thing the macro does is to create an
     ;; object that satisfies the ServiceDefinition protocol.
@@ -82,7 +78,7 @@
          {~service-id
            ;; the main service fnk for the app graph.  we add metadata to the fnk
            ;; arguments list to specify an explicit output schema for the fnk
-           (fnk ~(fnk-binding-form dependencies service-fn-names)
+           (fnk ~(si/fnk-binding-form dependencies service-fn-names)
               ;; create a function that exposes the service context to the service.
               ;; we use ~' to force literal symbols for this, because we must
               ;; match the name of the protocol function exactly since that
@@ -93,7 +89,7 @@
                     ;; other functions from this service.
                     service-map#      (into {}
                                         ~(vec (let [fns (select-values fns-map (map keyword service-fn-names))
-                                                    fns (protocol-fns->prismatic-fns fns service-fn-names)]
+                                                    fns (si/protocol-fns->prismatic-fns fns service-fn-names)]
                                                 (for [f fns]
                                                   [(:name f) `(fnk [~@(:deps f)] (fn [~@(:args f)] ~@(:body f)))]))))
                     ;; compile the inner graph so that we end up with a map of

@@ -10,6 +10,19 @@
        (contains? p :on)
        (instance? Class (resolve (:on p)))))
 
+(defn add-default-lifecycle-fn
+  "TODO docs"
+  [fns-map fn-name]
+  (if (contains? fns-map (keyword fn-name))
+    fns-map
+    (assoc fns-map (keyword fn-name)
+      (cons fn-name '([this context] context)))))
+
+(defn add-default-lifecycle-fns
+  "TODO docs"
+  [lifecycle-fn-names fns-map]
+  (reduce add-default-lifecycle-fn fns-map lifecycle-fn-names))
+
 (defn fnk-binding-form
   "Given a fnk dependencies binding form vector and a list of functions that
   a service provides, return the binding form annotated with metadata containing

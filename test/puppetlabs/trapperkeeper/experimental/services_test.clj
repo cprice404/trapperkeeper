@@ -41,6 +41,13 @@
   (service3-fn [this]))
 
 (deftest lifecycle-test
+  (testing "services are not required to define lifecycle functions"
+    (let [service1  (service Service1
+                      []
+                      (service1-fn [this] "hi"))
+          app       (boot! [service1])]
+      (is (not (nil? app)))))
+
   (testing "life cycle functions are called in the correct order"
     (let [call-seq  (atom [])
           lc-fn     (fn [context action] (swap! call-seq conj action) context)
@@ -73,13 +80,9 @@
   (testing "services should be able to call functions in dependency list"
     (let [service1 (service Service1
                             []
-                            (init [this context] context)
-                            (start [this context] context)
                             (service1-fn [this] "FOO!"))
           service2 (service Service2
                             [[:Service1 service1-fn]]
-                            (init [this context] context)
-                            (start [this context] context)
                             (service2-fn [this] (str "HELLO " (service1-fn))))
           app (boot! [service1 service2])
           s2 (get-service app :Service2)]
@@ -93,8 +96,6 @@
   (testing "should be able to call other functions in same service via 'this'"
     (let [service4  (service Service4
                       []
-                      (init [this context] context)
-                      (start [this context] context)
                       (service4-fn1 [this] "foo!")
                       (service4-fn2 [this] (str (service4-fn1 this) " bar!")))
           app       (boot! [service4])
@@ -106,7 +107,6 @@
     (let [service1 (service Service1
                       []
                       (init [this context] "hi")
-                      (start [this context] context)
                       (service1-fn [this] "hi"))]
       (is (thrown-with-msg?
             IllegalStateException
@@ -115,7 +115,6 @@
 
     (let [service1 (service Service1
                             []
-                            (init [this context] context)
                             (start [this context] "hi")
                             (service1-fn [this] "hi"))]
       (is (thrown-with-msg?
@@ -138,7 +137,6 @@
           service1 (service Service1
                             []
                             (init [this context] (assoc context :foo :bar))
-                            (start [this context] context)
                             (service1-fn [this] (reset! sfn-context (service-context this))))
           app       (boot! [service1])
           s1        (get-service app :Service1)]
@@ -150,12 +148,9 @@
     (let [service1 (service Service1
                             []
                             (init [this context] (assoc context :foo :bar))
-                            (start [this context] context)
                             (service1-fn [this] ((service-context this) :foo)))
           service2 (service Service2
                             [[:Service1 service1-fn]]
-                            (init [this context] context)
-                            (start [this context] context)
                             (service2-fn [this] (service1-fn)))
           app      (boot! [service1 service2])
           s2       (get-service app :Service2)]
@@ -165,7 +160,6 @@
     (let [service4 (service Service4
                             []
                             (init [this context] (assoc context :foo :bar))
-                            (start [this context] context)
                             (service4-fn1 [this] ((service-context this) :foo))
                             (service4-fn2 [this] (service4-fn1 this)))
           app      (boot! [service4])
@@ -177,11 +171,9 @@
           service1 (service Service1
                             []
                             (init [this context] (assoc context :foo :bar))
-                            (start [this context] context)
                             (service1-fn [this] "hi"))
           service2 (service Service2
                             [[:Service1 service1-fn]]
-                            (init [this context] context)
                             (start [this context] (reset! s2-context (service-context this)))
                             (service2-fn [this] "hi"))
 

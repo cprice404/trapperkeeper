@@ -38,8 +38,9 @@
           (si/find-prot-and-deps-forms! '(Foo [] (fn1 [] "fn1") "hi"))))))
 
 (defn local-resolve
-  "TODO: docs"
+  "Resolve symbol in current (services-internal-test) namespace"
   [sym]
+  {:pre [(symbol? sym)]}
   (ns-resolve
     'puppetlabs.trapperkeeper.experimental.services-internal-test
     sym))
@@ -81,6 +82,35 @@
 
 (defprotocol Service2
   (service2-fn [this]))
+
+(defprotocol BadServiceProtocol
+  (start [this]))
+
+(deftest invalid-fns-test
+  (testing "should throw an exception if there is no definition of a function in the protocol"
+    (is (thrown-with-msg?
+          IllegalArgumentException
+          #"Service does not define function 'service1-fn', which is required by protocol 'Service1'"
+          (si/parse-service-forms!
+            ['init 'start]
+            (cons 'puppetlabs.trapperkeeper.experimental.services-internal-test/Service1
+              '([] (init [this context] context)))))))
+  (testing "should throw an exception if there is a definition for a function that is not in the protocol"
+    (is (thrown-with-msg?
+          IllegalArgumentException
+          #"Service attempts to define function 'foo', which does not exist in protocol 'Service1'"
+          (si/parse-service-forms!
+            ['init 'start]
+            (cons 'puppetlabs.trapperkeeper.experimental.services-internal-test/Service1
+                  '([] (foo [this] "foo")))))))
+  (testing "should throw an exception if the protocol includes a function with the same name as a lifecycle function"
+    (is (thrown-with-msg?
+          IllegalArgumentException
+          #"Service protocol 'BadServiceProtocol' includes function named 'start', which conflicts with lifecycle function by same name"
+          (si/parse-service-forms!
+            ['init 'start]
+            (cons 'puppetlabs.trapperkeeper.experimental.services-internal-test/BadServiceProtocol
+                  '([] (start [this] "foo"))))))))
 
 (deftest prismatic-functionality-test
   (testing "prismatic fnk is initialized properly"

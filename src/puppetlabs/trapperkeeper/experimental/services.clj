@@ -1,5 +1,4 @@
 (ns puppetlabs.trapperkeeper.experimental.services
-  (:import (java_service_example ServiceImpl))
   (:require [clojure.tools.macro :refer [name-with-attributes]]
             [clojure.set :refer [difference]]
             [plumbing.core :refer [fnk]]
@@ -31,7 +30,6 @@
   (service-map [this] "The map of service functions for the graph")
   (constructor [this] "A constructor function to instantiate the service"))
 
-(def lifecycle-protocol-name (name (:name (meta (var ServiceLifecycle)))))
 (def lifecycle-fn-names (map :name (vals (:sigs ServiceLifecycle))))
 
 (defmacro service
@@ -40,7 +38,6 @@
   (let [{:keys [service-protocol-sym service-id service-fn-names
                 dependencies fns-map]}
                       (si/parse-service-forms!
-                        lifecycle-protocol-name
                         lifecycle-fn-names
                         forms)
         ;;; we add 'context' to the dependencies list of all of the services.  we'll
@@ -90,6 +87,7 @@
     `(def ~svc-name (service ~@forms))))
 
 (defn boot!
+  ;; TODO docs
   [services]
   {:pre [(every? #(satisfies? ServiceDefinition %) services)]
    :post [(satisfies? TrapperkeeperApp %)]}

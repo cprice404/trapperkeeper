@@ -22,6 +22,9 @@
             [puppetlabs.trapperkeeper.services :refer [service]]
             [puppetlabs.trapperkeeper.logging :refer [configure-logging!]]))
 
+(defprotocol ConfigService
+  (get-in-config [this ]))
+
 (defn config-service
   "Returns trapperkeeper's configuration service.  Expects
    to find a command-line argument value for `:config`; the value of this

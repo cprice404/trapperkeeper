@@ -142,7 +142,7 @@
   ;; in dependency order.
   shutdown-fns (atom ()))
 
-(defn- request-shutdown
+(defn request-shutdown*
   "Initiate the normal shutdown of TrapperKeeper. This is asynchronous.
   It is assumed that `wait-for-shutdown` has been called and is blocking.
   Intended to be used by application services (likely their worker threads)
@@ -152,7 +152,7 @@
   [shutdown-reason-promise]
   (deliver shutdown-reason-promise {:cause :requested}))
 
-(defn- shutdown-on-error
+(defn shutdown-on-error*
   "A higher-order function that is intended to be used as a wrapper around
   some logic `f` in your services. It will wrap your application logic in a
   `try/catch` block that will cause TrapperKeeper to initiate an error shutdown
@@ -162,7 +162,7 @@
   If an optional `on-error-fn` is provided, it will be executed if `f` throws
   an exception, but before the primary shutdown sequence begins."
   ([shutdown-reason-promise f]
-   (shutdown-on-error shutdown-reason-promise f nil))
+   (shutdown-on-error* shutdown-reason-promise f nil))
   ([shutdown-reason-promise f on-error-fn]
    {:pre [(ifn? f)
           ((some-fn nil? ifn?) on-error-fn)]}
@@ -172,6 +172,13 @@
        (deliver shutdown-reason-promise {:cause       :service-error
                                          :error       e
                                          :on-error-fn on-error-fn})))))
+
+(defprotocol ShutdownService
+  (wait-for-shutdown [this])
+  (request-shutdown [this] "Asynchronously trigger normal shutdown")
+  (shutdown-on-error [this f on-error]
+    "Higher-order function to execute application logic and trigger shutdown in
+    the event of an exception"))
 
 (defn- shutdown-service
   "Provides various functions for triggering application shutdown programatically.
@@ -185,12 +192,11 @@
 
   For more information, see `request-shutdown` and `shutdown-on-error`."
   [shutdown-reason-promise]
-  ((service :shutdown-service
-            {:depends  []
-             :provides [wait-for-shutdown request-shutdown shutdown-on-error]}
-            {:wait-for-shutdown  #(deref shutdown-reason-promise)
-             :request-shutdown   (partial request-shutdown shutdown-reason-promise)
-             :shutdown-on-error  (partial shutdown-on-error shutdown-reason-promise)})))
+  (service ShutdownService
+    []
+    (wait-for-shutdown [this] (deref shutdown-reason-promise))
+    (request-shutdown [this]  (request-shutdown* shutdown-reason-promise))
+    (shutdown-on-error [this f on-error] (shutdown-on-error* shutdown-reason-promise f on-error))))
 
 (defn shutdown!
   "Perform shutdown on the application by calling all service shutdown hooks.

@@ -1,10 +1,10 @@
-(ns puppetlabs.trapperkeeper.experimental.services
+(ns puppetlabs.trapperkeeper.services
   (:require [clojure.tools.macro :refer [name-with-attributes]]
             [clojure.set :refer [difference]]
             [plumbing.core :refer [fnk]]
             [plumbing.graph :as g]
             [puppetlabs.kitchensink.core :refer [select-values keyset]]
-            [puppetlabs.trapperkeeper.experimental.services-internal :as si]))
+            [puppetlabs.trapperkeeper.services-internal :as si]))
 
 (defprotocol ServiceLifecycle
   "Lifecycle functions for a service.  All services satisfy this protocol, and

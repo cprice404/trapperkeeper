@@ -1,4 +1,4 @@
-(ns puppetlabs.trapperkeeper.experimental.services-internal
+(ns puppetlabs.trapperkeeper.services-internal
   (:require [clojure.walk :refer [postwalk]]
             [clojure.set :refer [difference union intersection]]
             [plumbing.core :refer [fnk]]

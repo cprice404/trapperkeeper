@@ -1,6 +1,6 @@
-(ns puppetlabs.trapperkeeper.experimental.services-test
+(ns puppetlabs.trapperkeeper.services-test
   (:require [clojure.test :refer :all]
-            [puppetlabs.trapperkeeper.experimental.services :refer
+            [puppetlabs.trapperkeeper.services :refer
                 [TrapperkeeperApp ServiceDefinition Service ServiceLifecycle
                  defservice service boot! get-service service-context]]))
 

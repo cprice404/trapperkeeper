@@ -361,7 +361,10 @@
           (coll? (:deps %))
           (seq? (:f %))
           (= 'fn (first (:f %)))]}
-  (let [sigs    [(rest f)]
+  ;; TODO: comment
+  (let [sigs    (if (vector? (second f))
+                  [(rest f)]
+                  (rest f))
         bodies
                 (for [sig sigs]
                   ;; first we destructure the function form into its various parts
@@ -421,10 +424,24 @@
          (fns-map? fns-map)]
    :post [(seq? %)
           (every? seq? %)]}
-  (for [fn-name fn-names]
-    (let [[_ fn-args & _] (fns-map (keyword fn-name))]
-      (list fn-name fn-args
-        (cons
-          (list 'service-fns (keyword fn-name))
-          (rest fn-args))))))
+
+  (reduce
+    (fn [acc fn-name]
+      (let [f    (fns-map (keyword fn-name))
+            sigs (if (vector? (second f))
+                   [(rest f)]
+                   (rest f))]
+        ;; TODO: comment or refactor
+
+        (concat acc
+                (for [sig sigs]
+                  (let [[fn-args & _] sig]
+                    (list
+                      fn-name
+                      fn-args
+                      (cons
+                        (list 'service-fns (keyword fn-name))
+                        (rest fn-args))))))))
+    '()
+    fn-names))
 

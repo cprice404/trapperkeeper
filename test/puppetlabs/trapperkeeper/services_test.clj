@@ -221,13 +221,13 @@
 (defprotocol MultiArityService
   (foo [this x] [this x y]))
 
-#_(deftest test-multi-arity-protocol-fn
+(deftest test-multi-arity-protocol-fn
   (testing "should support protocols with multi-arity fns"
     (let [ma-service  (service MultiArityService
                                []
                                (foo
-                                 ([x] x)
-                                 ([x y] (+ x y))))
+                                 ([this x] x)
+                                 ([this x y] (+ x y))))
           service1    (service Service1
                                [[:MultiArityService foo]]
                                (service1-fn [this]

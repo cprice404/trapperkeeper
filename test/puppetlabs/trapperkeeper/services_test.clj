@@ -225,9 +225,8 @@
   (testing "should support protocols with multi-arity fns"
     (let [ma-service  (service MultiArityService
                                []
-                               (foo
-                                 ([this x] x)
-                                 ([this x y] (+ x y))))
+                               (foo [this x] x)
+                               (foo [this x y] (+ x y)))
           service1    (service Service1
                                [[:MultiArityService foo]]
                                (service1-fn [this]

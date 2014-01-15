@@ -361,17 +361,21 @@
           (coll? (:deps %))
           (seq? (:f %))
           (= 'fn (first (:f %)))]}
-  ;; first we destructure the function form into its various parts
-  (let [[_ [this & fn-args] & fn-body] f
-        ;; now we need to transform all calls to `service-context` from
-        ;; protocol form to prismatic form.  we don't need to track this as
-        ;; a dependency because it will be provided by the app.
-        [_ fn-body] (replace-fn-calls #{'service-context} this fn-body)
-        ;; transform all the functions from the service protocol, and keep
-        ;; a list of the dependencies so that prismatic can inject them
-        [deps fn-body] (replace-fn-calls (set fn-names) this fn-body)]
-    {:deps deps
-     :f    (concat (list 'fn (vec fn-args)) fn-body)}))
+  (let [sigs    [(rest f)]
+        bodies
+                (for [sig sigs]
+                  ;; first we destructure the function form into its various parts
+                  (let [[[this & fn-args] & fn-body] sig
+                        ;; now we need to transform all calls to `service-context` from
+                        ;; protocol form to prismatic form.  we don't need to track this as
+                        ;; a dependency because it will be provided by the app.
+                        [_ fn-body] (replace-fn-calls #{'service-context} this fn-body)
+                        ;; transform all the functions from the service protocol, and keep
+                        ;; a list of the dependencies so that prismatic can inject them
+                        [deps fn-body] (replace-fn-calls (set fn-names) this fn-body)]
+                    {:deps deps :sig (cons (vec fn-args) fn-body)}))]
+    {:deps (->> bodies (map :deps) (apply concat) (distinct))
+     :f    (cons 'fn (map :sig bodies))}))
 
 (defn add-prismatic-service-fnk
   "Given the name of a fn from a service protocol, convert the raw fn form provided

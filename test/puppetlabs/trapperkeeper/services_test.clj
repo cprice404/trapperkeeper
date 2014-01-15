@@ -217,3 +217,24 @@
                                   context))]
           (boot! [service1 service0])
           (is (= "hi" @result)))))
+
+(defprotocol MultiArityService
+  (foo [this x] [this x y]))
+
+(deftest test-multi-arity-protocol-fn
+  (testing "should support protocols with multi-arity fns"
+    (let [ma-service  (service MultiArityService
+                               []
+                               (foo
+                                 ([x] x)
+                                 ([x y] (+ x y))))
+          service1    (service Service1
+                               [[:MultiArityService foo]]
+                               (service1-fn [this]
+                                            [(foo 5) (foo 3 6)]))
+          app         (boot! [ma-service service1])
+          mas         (get-service app :MultiArityService)
+          s1          (get-service app :Service1)]
+      (is (= 3 (foo mas 3)))
+      (is (= 5 (foo mas 4 1)))
+      (is (= [5 9] (service1-fn s1))))))

@@ -156,7 +156,7 @@
   (if (contains? fns-map (keyword fn-name))
     fns-map
     (assoc fns-map (keyword fn-name)
-      (cons fn-name '([this context] context)))))
+      (list (cons fn-name '([this context] context))))))
 
 (defn add-default-lifecycle-fns
   "Given a map of fns comprising a service body, add in a default implementation
@@ -256,9 +256,9 @@
   (let [[service-protocol-sym dependencies fns]
                           (find-prot-and-deps-forms! forms)
         service-id        (get-service-id service-protocol-sym)
-        service-fn-names  (get-service-fn-names service-protocol-sym)
+        service-fn-names  #spy/d (get-service-fn-names service-protocol-sym)
 
-        fns-map           (build-fns-map!
+        fns-map           #spy/d (build-fns-map!
                             service-protocol-sym
                             service-fn-names
                             lifecycle-fn-names
@@ -333,10 +333,11 @@
    :post [(vector? %)
           (set? (first %))
           (every? symbol? (first %))]}
+  (println "IN REPLACE-FN-CALLS, FORM:" form)
   ;; in practice, all our 'replace' function really needs to do is to
   ;; remove the 'this' argument.  The function signatures in the graph are
   ;; identical to the ones in the protocol, except without the 'this' arg.
-  (let [replace     (fn [form] (cons (first form) (nthrest form 2)))
+  (let [replace     #spy/d (fn [form] (cons (first #spy/d form) (nthrest form 2)))
         ;; we need an atom to accumulate the matches that we find, because
         ;; clojure.walk doesn't provide any signatures that support an accumulator.
         ;; could eventually look into replacing this with an implementation based
@@ -356,32 +357,34 @@
 
   :deps - a list of fns from the service that this fn depends on
   :f    - the modified fn form, suitable for use in the graph"
-  [fn-names f]
+  [fn-names sigs]
   {:pre [(every? symbol? fn-names)
-         (seq? f)]
+         (seq? sigs)
+         (every? seq? sigs)]
    :post [(map? %)
           (= #{:deps :f} (keyset %))
           (coll? (:deps %))
           (seq? (:f %))
           (= 'fn (first (:f %)))]}
   ;; TODO: comment
-  (let [sigs    (if (vector? (second f))
-                  [(rest f)]
-                  (rest f))
+  (let [
+         ;sigs    (if (vector? (second f))
+         ;         [(rest f)]
+         ;         (rest f))
         bodies
                 (for [sig sigs]
                   ;; first we destructure the function form into its various parts
-                  (let [[[this & fn-args] & fn-body] sig
+                  (let [[_ [this & fn-args] & fn-body] #spy/d sig
                         ;; now we need to transform all calls to `service-context` from
                         ;; protocol form to prismatic form.  we don't need to track this as
                         ;; a dependency because it will be provided by the app.
-                        [_ fn-body] (replace-fn-calls #{'service-context} this fn-body)
+                        [_ fn-body] #spy/d (replace-fn-calls #{'service-context} this fn-body)
                         ;; transform all the functions from the service protocol, and keep
                         ;; a list of the dependencies so that prismatic can inject them
                         [deps fn-body] (replace-fn-calls (set fn-names) this fn-body)]
                     {:deps deps :sig (cons (vec fn-args) fn-body)}))]
-    {:deps (->> bodies (map :deps) (apply concat) (distinct))
-     :f    (cons 'fn (map :sig bodies))}))
+    {:deps #spy/d (->> bodies (map :deps) (apply concat) (distinct))
+     :f    #spy/d (cons 'fn (map :sig bodies))}))
 
 (defn add-prismatic-service-fnk
   "Given the name of a fn from a service protocol, convert the raw fn form provided
@@ -395,7 +398,9 @@
          (every? keyword? (keys fnk-acc))
          (every? (fn [v] (= 'plumbing.core/fnk (first v))) (vals fnk-acc))
          (keyword? fn-name)]
-   :post [(fns-map? %)
+   :post [(map? %)
+          (every? keyword? (keys %))
+          (every? seq? (vals %))
           (every? (fn [v] (= 'plumbing.core/fnk (first v))) (vals %))]}
   (let [{:keys [deps f]} (protocol-fn->graph-fn
                            fn-names
@@ -409,11 +414,13 @@
   [fn-names fns-map]
   {:pre [(every? symbol? fn-names)
          (fns-map? fns-map)]
-   :post [(fns-map? %)
+   :post [(map? %)
+          (every? keyword? (keys %))
+          (every? seq? (vals %))
           (every? (fn [v] (= 'plumbing.core/fnk (first v))) (vals %))
           (= (set (map keyword fn-names))
              (keyset fns-map))]}
-  (reduce
+  #spy/d (reduce
     (partial add-prismatic-service-fnk fn-names fns-map)
     {}
     (map keyword fn-names)))
@@ -430,15 +437,16 @@
 
   (reduce
     (fn [acc fn-name]
-      (let [f    (fns-map (keyword fn-name))
-            sigs (if (vector? (second f))
-                   [(rest f)]
-                   (rest f))]
+      (let [sigs    (fns-map (keyword fn-name))
+            ;sigs (if (vector? (second f))
+            ;       [(rest f)]
+            ;       (rest f))
+            ]
         ;; TODO: comment or refactor
 
         (concat acc
                 (for [sig sigs]
-                  (let [[fn-args & _] sig]
+                  (let [[_ fn-args & _] sig]
                     (list
                       fn-name
                       fn-args

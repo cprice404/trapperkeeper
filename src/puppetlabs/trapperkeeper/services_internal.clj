@@ -13,6 +13,15 @@
        (contains? p :on)
        (instance? Class (resolve (:on p)))))
 
+(defn fn-sig?
+  "A predicate to determine whether or not a form represents a valid function signature
+  in the context of a service definition."
+  [sig]
+  (and (seq? sig)
+       (> (count sig) 1)
+       (symbol? (first sig))
+       (vector? (second sig))))
+
 (defn fns-map?
   "A predicate to determine whether or not an object is a map of fns, as
   used internally by the `service` macro"
@@ -20,7 +29,7 @@
   (and (map? m)
        (every? keyword? (keys m))
        (every? seq? (vals m))
-       (every? seq? (apply concat (vals m)))))
+       (every? fn-sig? (apply concat (vals m)))))
 
 (defn validate-fn-forms!
   "Validate that all of the fn forms in the service body appear to be
@@ -256,9 +265,9 @@
   (let [[service-protocol-sym dependencies fns]
                           (find-prot-and-deps-forms! forms)
         service-id        (get-service-id service-protocol-sym)
-        service-fn-names  #spy/d (get-service-fn-names service-protocol-sym)
+        service-fn-names  (get-service-fn-names service-protocol-sym)
 
-        fns-map           #spy/d (build-fns-map!
+        fns-map           (build-fns-map!
                             service-protocol-sym
                             service-fn-names
                             lifecycle-fn-names
@@ -333,11 +342,10 @@
    :post [(vector? %)
           (set? (first %))
           (every? symbol? (first %))]}
-  (println "IN REPLACE-FN-CALLS, FORM:" form)
   ;; in practice, all our 'replace' function really needs to do is to
   ;; remove the 'this' argument.  The function signatures in the graph are
   ;; identical to the ones in the protocol, except without the 'this' arg.
-  (let [replace     #spy/d (fn [form] (cons (first #spy/d form) (nthrest form 2)))
+  (let [replace     (fn [form] (cons (first form) (nthrest form 2)))
         ;; we need an atom to accumulate the matches that we find, because
         ;; clojure.walk doesn't provide any signatures that support an accumulator.
         ;; could eventually look into replacing this with an implementation based
@@ -351,9 +359,10 @@
     [@acc result]))
 
 (defn protocol-fn->graph-fn
-  "Given a list of fn names provided by a service, and a fn form from the
-  service macro, convert it to a fn that is suitable for use in a prismatic graph.
-  Returns a map containing the following keys:
+  "Given a list of fn names provided by a service, and a list of fn forms for a
+  (potentially multi-arity) fn from the service macro, create a fn form that is
+  suitable for use in a prismatic graph.  Returns a map containing the following
+  keys:
 
   :deps - a list of fns from the service that this fn depends on
   :f    - the modified fn form, suitable for use in the graph"
@@ -366,25 +375,19 @@
           (coll? (:deps %))
           (seq? (:f %))
           (= 'fn (first (:f %)))]}
-  ;; TODO: comment
-  (let [
-         ;sigs    (if (vector? (second f))
-         ;         [(rest f)]
-         ;         (rest f))
-        bodies
-                (for [sig sigs]
+  (let [bodies (for [sig sigs]
                   ;; first we destructure the function form into its various parts
-                  (let [[_ [this & fn-args] & fn-body] #spy/d sig
+                  (let [[_ [this & fn-args] & fn-body] sig
                         ;; now we need to transform all calls to `service-context` from
                         ;; protocol form to prismatic form.  we don't need to track this as
                         ;; a dependency because it will be provided by the app.
-                        [_ fn-body] #spy/d (replace-fn-calls #{'service-context} this fn-body)
+                        [_ fn-body] (replace-fn-calls #{'service-context} this fn-body)
                         ;; transform all the functions from the service protocol, and keep
                         ;; a list of the dependencies so that prismatic can inject them
                         [deps fn-body] (replace-fn-calls (set fn-names) this fn-body)]
                     {:deps deps :sig (cons (vec fn-args) fn-body)}))]
-    {:deps #spy/d (->> bodies (map :deps) (apply concat) (distinct))
-     :f    #spy/d (cons 'fn (map :sig bodies))}))
+    {:deps (->> bodies (map :deps) (apply concat) (distinct))
+     :f    (cons 'fn (map :sig bodies))}))
 
 (defn add-prismatic-service-fnk
   "Given the name of a fn from a service protocol, convert the raw fn form provided
@@ -420,15 +423,28 @@
           (every? (fn [v] (= 'plumbing.core/fnk (first v))) (vals %))
           (= (set (map keyword fn-names))
              (keyset fns-map))]}
-  #spy/d (reduce
+  (reduce
     (partial add-prismatic-service-fnk fn-names fns-map)
     {}
     (map keyword fn-names)))
 
+(defn protocol-fn
+  "Given a form containing the definition of a service function, return a fn form
+  that simply proxies to the corresponding function in the prismatic graph (`service-fns`)."
+  [sig]
+  {:pre [(fn-sig? sig)]}
+  (let [[fn-name fn-args & _] sig]
+    (list
+      fn-name
+      fn-args
+      (cons
+        (list 'service-fns (keyword fn-name))
+        (rest fn-args)))))
+
 (defn protocol-fns
   "Given a list of fn names and a map containing the original fn forms provided to
   the service macro, return a list of modified fn forms that simply proxy to the
-  functions in the prismatic graph (`service-fns`)."
+  functions in the prismatic graph."
   [fn-names fns-map]
   {:pre [(every? symbol? fn-names)
          (fns-map? fns-map)]
@@ -437,22 +453,8 @@
 
   (reduce
     (fn [acc fn-name]
-      (let [sigs    (fns-map (keyword fn-name))
-            ;sigs (if (vector? (second f))
-            ;       [(rest f)]
-            ;       (rest f))
-            ]
-        ;; TODO: comment or refactor
-
-        (concat acc
-                (for [sig sigs]
-                  (let [[_ fn-args & _] sig]
-                    (list
-                      fn-name
-                      fn-args
-                      (cons
-                        (list 'service-fns (keyword fn-name))
-                        (rest fn-args))))))))
+      (let [sigs (fns-map (keyword fn-name))]
+        (concat acc (for [sig sigs] (protocol-fn sig)))))
     '()
     fn-names))
 

@@ -19,8 +19,8 @@
   [m]
   (and (map? m)
        (every? keyword? (keys m))
-       (every? seq? (vals m))))
-
+       (every? seq? (vals m))
+       (every? seq? (apply concat (vals m)))))
 
 (defn validate-fn-forms!
   "Validate that all of the fn forms in the service body appear to be
@@ -185,9 +185,7 @@
          (coll? lifecycle-fn-names)
          (every? symbol? lifecycle-fn-names)
          (every? seq? fns)]
-   :post [(map? %)
-          (every? keyword? (keys %))
-          (every? seq? (vals %))
+   :post [(fns-map? %)
           (= (keyset %)
              (union (set (map keyword service-fn-names))
                     (set (map keyword lifecycle-fn-names))))]}
@@ -196,7 +194,12 @@
     (validate-protocol-fn-names! service-protocol-sym service-fn-names lifecycle-fn-names))
 
   (let [fns-map (->> (reduce
-                       (fn [acc f] (assoc acc (keyword (first f)) f))
+                       (fn [acc f]
+                         (let [k    (keyword (first f))
+                               cur  (acc k)]
+                           (if cur
+                             (assoc acc k (cons f cur))
+                             (assoc acc k (list f)))))
                        {}
                        fns)
                   (add-default-lifecycle-fns lifecycle-fn-names))]

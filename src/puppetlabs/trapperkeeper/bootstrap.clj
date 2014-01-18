@@ -195,7 +195,8 @@
         ;; finally, create the app instance
         app            (reify
                          TrapperkeeperApp
-                         (get-service [this protocol] (services-by-id (keyword protocol))))]
+                         (get-service [this protocol] (services-by-id (keyword protocol)))
+                         (service-graph [this] graph-instance))]
 
     ;; iterate over the lifecycle functions in order
     (doseq [[lifecycle-fn lifecycle-fn-name]  [[init "init"] [start "start"]]

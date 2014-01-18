@@ -13,7 +13,8 @@
 ;  namespace.
 (defprotocol TrapperkeeperApp
   "Functions available on a trapperkeeper application instance"
-  (get-service [this service-id] "Returns the service with the given service id"))
+  (get-service [this service-id] "Returns the service with the given service id")
+  (service-graph [this] "Returns the prismatic graph of service fns for this app"))
 
 (def ^{:doc "Alias for plumbing.map/map-leaves-and-path, which is named inconsistently
             with Clojure conventions as it doesn't behave like other `map` functions.

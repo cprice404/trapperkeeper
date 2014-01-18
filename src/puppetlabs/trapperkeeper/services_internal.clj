@@ -121,9 +121,9 @@
   otherwise."
   [service-protocol-sym service-fns provided-fns]
   {:pre [((some-fn nil? symbol?) service-protocol-sym)
-         (coll? service-fns)
+         (set? service-fns)
          (every? keyword? service-fns)
-         (coll? provided-fns)
+         (set? provided-fns)
          (every? keyword? provided-fns)]}
   (if (and (nil? service-protocol-sym)
            (> (count provided-fns) 0))
@@ -131,7 +131,7 @@
              (format
                "Service attempts to define function '%s', but does not provide protocol"
                (name (first provided-fns))))))
-  (let [extras (difference provided-fns service-fns)]
+  (let [extras (difference provided-fns ^{:fs 3} service-fns)]
     (when-not (empty? extras)
       (throw (IllegalArgumentException.
                (format
@@ -214,9 +214,9 @@
                   (add-default-lifecycle-fns lifecycle-fn-names))]
     (validate-provided-fns!
       service-protocol-sym
-      (map keyword service-fn-names)
+      (set (map keyword service-fn-names))
       (difference (keyset fns-map)
-                  (map keyword lifecycle-fn-names)))
+                  (set (map keyword lifecycle-fn-names))))
     (when service-protocol-sym
       (validate-required-fns! service-protocol-sym service-fn-names fns-map))
     fns-map))

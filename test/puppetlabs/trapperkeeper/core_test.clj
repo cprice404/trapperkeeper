@@ -7,46 +7,33 @@
             [puppetlabs.trapperkeeper.core :as trapperkeeper]
             [puppetlabs.trapperkeeper.testutils.bootstrap :refer :all]))
 
+(defprotocol FooService
+  (foo [this]))
+
 (deftest dependency-error-handling
   (testing "missing service dependency throws meaningful message"
-    (let [broken-service (service :broken-service
-                                  {:depends  [[:missing-service f]]
-                                   :provides [unused]}
-                                  {:unused #()})]
+    (let [broken-service (service
+                           [[:MissingService f]]
+                           (init [this context] (f) context))]
       (is (thrown-with-msg?
             RuntimeException #"Service ':missing-service' not found"
             (bootstrap-services-with-empty-config [(broken-service)])))))
 
   (testing "missing service function throws meaningful message"
-    (let [test-service    (service :test-service
-                                   {:depends  []
-                                    :provides [foo]}
-                                   {:foo #()})
-          broken-service  (service :broken-service
-                                   {:depends  [[:test-service bar]]
-                                    :provides [unused]}
-                                   {:unused #()})]
+    (let [test-service    (service FooService
+                                   []
+                                   (foo [this] "foo"))
+          broken-service  (service
+                            [[:FooService bar]]
+                            (init [this context] (bar) context))]
       (is (thrown-with-msg?
             RuntimeException #"Service function 'bar' not found"
             (bootstrap-services-with-empty-config [(test-service) (broken-service)]))))
 
-    (let [test-service    (service :test-service
-                                   {:depends  []
-                                    :provides [foo bar]}
-                                   {:foo #()})
-          broken-service  (service :broken-service
-                                   {:depends  [[:test-service foo bar]]
-                                    :provides [unused]}
-                                   {:unused #()})]
-      (is (thrown-with-msg?
-            RuntimeException #"Service function 'bar' not found"
-            (bootstrap-services-with-empty-config [(test-service) (broken-service)]))))
-
-    (let [broken-service  (service :broken-service
-                                   {:depends  []
-                                    :provides [unused]}
-                                   (throw (RuntimeException. "This shouldn't match the regexs"))
-                                   {:unused #()})]
+    (let [broken-service  (service
+                            []
+                            (init [this context]
+                                  (throw (RuntimeException. "This shouldn't match the regexs"))))]
       (is (thrown-with-msg?
             RuntimeException #"This shouldn't match the regexs"
             (bootstrap-services-with-empty-config [(broken-service)]))))))

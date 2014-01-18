@@ -5,6 +5,7 @@
             [clojure.string :as string]
             [clojure.java.io :refer [reader resource file input-stream]]
             [clojure.tools.logging :as log]
+            [plumbing.graph :as g]
             [puppetlabs.trapperkeeper.plugins :as plugins]
             [puppetlabs.trapperkeeper.config :refer [parse-config-data
                                                      initialize-logging!
@@ -13,8 +14,13 @@
                                                        service-graph?
                                                        compile-graph
                                                        instantiate
-                                                       register-shutdown-hooks!]])
-  (:import (puppetlabs.trapperkeeper.internal TrapperKeeperApp)))
+                                                       TrapperkeeperApp]]
+            [puppetlabs.trapperkeeper.services :refer [ServiceDefinition
+                                                       service-map
+                                                       service-id
+                                                       service-constructor
+                                                       init
+                                                       start]]))
 
 (def bootstrap-config-file-name "bootstrap.cfg")
 
@@ -166,13 +172,54 @@
    bootstrap and return the trapperkeeper application."
   [services config-data]
   {:pre  [(sequential? services)
-          (every? service-graph? services)]
-   :post [(instance? TrapperKeeperApp %)]}
-  (-> (apply merge (config-service config-data) services)
-      (register-shutdown-hooks!)
-      (compile-graph)
-      (instantiate)
-      (TrapperKeeperApp.)))
+          (every? #(satisfies? ServiceDefinition %) services)]
+   :post [(satisfies? TrapperkeeperApp %)]}
+  (let [services       (conj services (config-service config-data))
+        service-map    (apply merge (map service-map services))
+        compiled-graph (compile-graph service-map)
+        ;; this gives us an ordered graph that we can use to call lifecycle
+        ;; functions in the correct order later
+        graph          (g/->graph service-map)
+        ;compiled-graph (g/eager-compile #spy/d graph)
+        ;; this is the application context for this app instance.  its keys
+        ;; will be the service ids, and values will be maps that represent the
+        ;; context for each individual service
+        context        (atom {})
+        ;; when we instantiate the graph, we pass in the context atom.
+        graph-instance (instantiate compiled-graph {:context context})
+        ;; here we build up a map of all of the services by calling the
+        ;; constructor for each one
+        services-by-id (into {} (map
+                                  (fn [sd] [(service-id sd)
+                                            ((service-constructor sd) graph-instance context)])
+                                  services))
+        ;; finally, create the app instance
+        app            (reify
+                         TrapperkeeperApp
+                         (get-service [this protocol] (services-by-id (keyword protocol))))]
+
+    ;; iterate over the lifecycle functions in order
+    (doseq [[lifecycle-fn lifecycle-fn-name]  [[init "init"] [start "start"]]
+            ;; and iterate over the services, based on the ordered graph so
+            ;; that we know their dependencies are taken into account
+            graph-entry                       graph]
+
+      (let [service-id    (first graph-entry)
+            s             (services-by-id service-id)
+            ;; call the lifecycle function on the service, and keep a reference
+            ;; to the updated context map that it returns
+            updated-ctxt  (lifecycle-fn s (get @context service-id {}))]
+        (if-not (map? updated-ctxt)
+          (throw (IllegalStateException.
+                   (format
+                     "Lifecycle function '%s' for service '%s' must return a context map (got: %s)"
+                     lifecycle-fn-name
+                     service-id
+                     (pr-str updated-ctxt)))))
+        ;; store the updated service context map in the application context atom
+        (swap! context assoc service-id updated-ctxt)))
+    app)
+  )
 
 (defn bootstrap
   "Bootstrap a trapperkeeper application.  This is accomplished by reading a
@@ -197,7 +244,7 @@
   [cli-data]
   {:pre  [(map? cli-data)
           (contains? cli-data :config)]
-   :post [(instance? TrapperKeeperApp %)]}
+   :post [(satisfies? TrapperkeeperApp %)]}
   ;; There is a strict order of operations that need to happen here:
   ;; 1. parse config files
   ;; 2. initialize logging

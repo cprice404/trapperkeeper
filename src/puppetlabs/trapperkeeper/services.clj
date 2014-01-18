@@ -19,16 +19,12 @@
   "Common functions available to all services"
   (service-context [this] "Returns the context map for this service"))
 
-(defprotocol TrapperkeeperApp
-  "Functions available on a trapperkeeper application instance"
-  (get-service [this service-id] "Returns the service with the given service id"))
-
 (defprotocol ServiceDefinition
   "A service definition.  This protocol is for internal use only.  The service
   is not usable until it is instantiated (via `boot!`)."
   (service-id [this] "An identifier for the service")
   (service-map [this] "The map of service functions for the graph")
-  (constructor [this] "A constructor function to instantiate the service"))
+  (service-constructor [this] "A constructor function to instantiate the service"))
 
 (def lifecycle-fn-names (map :name (vals (:sigs ServiceLifecycle))))
 
@@ -65,7 +61,7 @@
                 s-graph-inst#))})
 
        ;; service constructor function
-       (constructor [this]
+       (service-constructor [this]
          ;; the constructor requires the main app graph and context atom as input
          (fn [graph# context#]
            (let [~'service-fns (graph# ~service-id)]
@@ -85,53 +81,4 @@
   [svc-name & forms]
   (let [[svc-name forms] (name-with-attributes svc-name forms)]
     `(def ~svc-name (service ~@forms))))
-
-(defn boot!
-  ;; TODO docs
-  [services]
-  {:pre [(every? #(satisfies? ServiceDefinition %) services)]
-   :post [(satisfies? TrapperkeeperApp %)]}
-  (let [service-map    (apply merge (map service-map services))
-        ;; this gives us an ordered graph that we can use to call lifecycle
-        ;; functions in the correct order later
-        graph          (g/->graph service-map)
-        compiled-graph (g/eager-compile graph)
-        ;; this is the application context for this app instance.  its keys
-        ;; will be the service ids, and values will be maps that represent the
-        ;; context for each individual service
-        context        (atom {})
-        ;; when we instantiate the graph, we pass in the context atom.
-        graph-instance (compiled-graph {:context context})
-        ;; here we build up a map of all of the services by calling the
-        ;; constructor for each one
-        services-by-id (into {} (map
-                                  (fn [sd] [(service-id sd)
-                                            ((constructor sd) graph-instance context)])
-                                  services))
-        ;; finally, create the app instance
-        app            (reify
-                         TrapperkeeperApp
-                         (get-service [this protocol] (services-by-id (keyword protocol))))]
-
-    ;; iterate over the lifecycle functions in order
-    (doseq [[lifecycle-fn lifecycle-fn-name]  [[init "init"] [start "start"]]
-            ;; and iterate over the services, based on the ordered graph so
-            ;; that we know their dependencies are taken into account
-            graph-entry                       graph]
-
-      (let [service-id    (first graph-entry)
-            s             (services-by-id service-id)
-            ;; call the lifecycle function on the service, and keep a reference
-            ;; to the updated context map that it returns
-            updated-ctxt  (lifecycle-fn s (get @context service-id {}))]
-        (if-not (map? updated-ctxt)
-          (throw (IllegalStateException.
-                   (format
-                     "Lifecycle function '%s' for service '%s' must return a context map (got: %s)"
-                     lifecycle-fn-name
-                     service-id
-                     (pr-str updated-ctxt)))))
-        ;; store the updated service context map in the application context atom
-        (swap! context assoc service-id updated-ctxt)))
-    app))
 

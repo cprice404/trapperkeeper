@@ -2,10 +2,11 @@
   (:require [clojure.test :refer :all]
             [slingshot.slingshot :refer [try+]]
             [puppetlabs.kitchensink.core :refer [without-ns]]
-            [puppetlabs.trapperkeeper.services :refer [service ]]
-            [puppetlabs.trapperkeeper.internal :refer [get-service-fn parse-cli-args!]]
+            [puppetlabs.trapperkeeper.services :refer [service]]
+            [puppetlabs.trapperkeeper.internal :refer [get-service parse-cli-args!]]
             [puppetlabs.trapperkeeper.core :as trapperkeeper]
-            [puppetlabs.trapperkeeper.testutils.bootstrap :refer :all]))
+            [puppetlabs.trapperkeeper.testutils.bootstrap :refer :all]
+            [puppetlabs.trapperkeeper.config :as config]))
 
 (defprotocol FooService
   (foo [this]))
@@ -16,8 +17,8 @@
                            [[:MissingService f]]
                            (init [this context] (f) context))]
       (is (thrown-with-msg?
-            RuntimeException #"Service ':missing-service' not found"
-            (bootstrap-services-with-empty-config [(broken-service)])))))
+            RuntimeException #"Service/function ':MissingService' not found"
+            (bootstrap-services-with-empty-config [broken-service])))))
 
   (testing "missing service function throws meaningful message"
     (let [test-service    (service FooService
@@ -28,7 +29,7 @@
                             (init [this context] (bar) context))]
       (is (thrown-with-msg?
             RuntimeException #"Service function 'bar' not found"
-            (bootstrap-services-with-empty-config [(test-service) (broken-service)]))))
+            (bootstrap-services-with-empty-config [test-service broken-service]))))
 
     (let [broken-service  (service
                             []
@@ -36,7 +37,14 @@
                                   (throw (RuntimeException. "This shouldn't match the regexs"))))]
       (is (thrown-with-msg?
             RuntimeException #"This shouldn't match the regexs"
-            (bootstrap-services-with-empty-config [(broken-service)]))))))
+            (bootstrap-services-with-empty-config [broken-service]))))
+
+    (is (thrown-with-msg?
+          RuntimeException #"Service does not define function 'foo'"
+          (macroexpand '(puppetlabs.trapperkeeper.services/service
+                          puppetlabs.trapperkeeper.core-test/FooService
+                          []
+                          (init [this context] context)))))))
 
 (deftest test-main
   (testing "Parsed CLI data"
@@ -83,16 +91,16 @@
 
 (deftest test-cli-args
   (testing "debug mode is off by default"
-    (let [app           (bootstrap-services-with-empty-config [])
-          get-in-config (get-service-fn app :config-service :get-in-config)]
-      (is (false? (get-in-config [:debug])))))
+    (let [app             (bootstrap-services-with-empty-config [])
+          config-service  (get-service app :ConfigService)]
+      (is (false? (config/get-in-config config-service [:debug])))))
 
   (testing "--debug puts TK in debug mode"
-    (let [app           (bootstrap-services-with-empty-config [] ["--debug"])
-          get-in-config (get-service-fn app :config-service :get-in-config)]
-      (is (true? (get-in-config [:debug])))))
+    (let [app             (bootstrap-services-with-empty-config [] ["--debug"])
+          config-service  (get-service app :ConfigService)]
+      (is (true? (config/get-in-config config-service [:debug])))))
 
   (testing "TK should accept --plugins arg"
     ;; Make sure --plugins is allowed; will throw an exception if not.
     (parse-cli-args! ["--config" "yo mama"
-                                    "--plugins" "some/plugin/directory"])))
+                      "--plugins" "some/plugin/directory"])))

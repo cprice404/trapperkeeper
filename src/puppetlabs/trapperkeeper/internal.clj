@@ -11,7 +11,9 @@
 ;  details and can pass the app object to our functions in a type-safe way.
 ;  The internal properties are not intended to be used outside of this
 ;  namespace.
-(defrecord TrapperKeeperApp [graph-instance])
+(defprotocol TrapperkeeperApp
+  "Functions available on a trapperkeeper application instance"
+  (get-service [this service-id] "Returns the service with the given service id"))
 
 (def ^{:doc "Alias for plumbing.map/map-leaves-and-path, which is named inconsistently
             with Clojure conventions as it doesn't behave like other `map` functions.
@@ -57,36 +59,18 @@
 (defn instantiate
   "Given the compiled graph function, instantiate the application. Throws an exception
   if there is a dependency on a service function that is not found in the graph."
-  [graph-fn]
-  {:pre  [(ifn? graph-fn)]
+  [graph-fn data]
+  {:pre  [(ifn? graph-fn)
+          (map? data)]
    :post [(service-graph? %)]}
   (try
-    (graph-fn {})
+    (graph-fn data)
     (catch RuntimeException e
       ;; TODO: when prismatic releases version 0.2.0 of plumbing, we should clean this
       ;; up.  See: https://tickets.puppetlabs.com/browse/PE-2281
-      (if-let [match (re-matches #"^Key (:.*) not found in null$" (.getMessage e))]
-        (throw (RuntimeException. (format "Service '%s' not found" (second match))))
-        (if-let [match (re-matches #"^Key :(.*) not found in .*$" (.getMessage e))]
-          (throw (RuntimeException. (format "Service function '%s' not found" (second match))))
-          (throw e))))))
-
-(defn get-service-fn
-  "Given a trapperkeeper application, a service name, and a sequence of keys,
-  returns the function provided by the service at that path.
-
-  Example:
-
-    (get-service-fn app :logging-service :info)"
-  [^TrapperKeeperApp app service service-fn]
-  {:pre [(keyword? service)
-         (keyword? service-fn)]
-   :post [(not (nil? %))
-          (ifn? %)]}
-  (or
-    (get-in (:graph-instance app) [service service-fn])
-    (throw (IllegalArgumentException.
-             (str "Service " service " or service function " service-fn " not found in graph.")))))
+      (if-let [match (re-matches #"^Key (:.*) not found in .*$" (.getMessage e))]
+        (throw (RuntimeException. (format "Service/function '%s' not found" (second match))))
+        (throw e)))))
 
 (defn parse-cli-args!
   "Parses the command-line arguments using `puppetlabs.kitchensink.core/cli!`.
@@ -123,7 +107,7 @@
 ;;;; to perform the appropriate shutdown steps.
 ;;;;
 ;;;; As a consequence of the implementation, the main blocking behavior of
-;;;; TrapperKeeper is defined here by `wait-for-shutdown`. This function
+;;;; TrapperKeeper is defined here by `wait-for-app-shutdown`. This function
 ;;;; simply attempts to dereference the above mentioned promise, which
 ;;;; until it is realized (e.g. by a call to `deliver`) will block, and the
 ;;;; delivered value returned. This value will contain contextual information
@@ -144,7 +128,7 @@
 
 (defn request-shutdown*
   "Initiate the normal shutdown of TrapperKeeper. This is asynchronous.
-  It is assumed that `wait-for-shutdown` has been called and is blocking.
+  It is assumed that `wait-for-app-shutdown` has been called and is blocking.
   Intended to be used by application services (likely their worker threads)
   to programatically trigger application shutdown.
   Note that this is exposed via the `shutdown-service` where it is a no-arg
@@ -226,7 +210,7 @@
                 result))]
     (fn->fnk f [in out])))
 
-(defn register-shutdown-hooks!
+#_(defn register-shutdown-hooks!
   "Walk the graph and register all shutdown functions. The functions
   will be called when the JVM shuts down, or by calling `shutdown!`."
   [graph]
@@ -238,7 +222,7 @@
                           (deliver shutdown-reason-promise {:cause :jvm-shutdown-hook})))
     (merge shutdown-service wrapped-graph)))
 
-(defn wait-for-shutdown
+(defn wait-for-app-shutdown
   "Wait for shutdown to be initiated - either externally (such as Ctrl-C) or
   internally (requested by service or service error) - and return the reason.
 
@@ -246,9 +230,10 @@
   * :cause       - One of :requested, :service-error, or :jvm-shutdown-hook
   * :error       - The error associated with the :service-error cause
   * :on-error-fn - An optional error callback associated with the :service-error cause"
-  [^TrapperKeeperApp app]
-  {:post [(map? %)]}
-  ((get-service-fn app :shutdown-service :wait-for-shutdown)))
+  [app]
+  {:pre [(satisfies? TrapperkeeperApp app)]
+   :post [(map? %)]}
+  (wait-for-shutdown (get-service app :ShutdownService)))
 
 (defn initiated-internally?
   "Given the shutdown reason obtained from `wait-for-shutdown`, determine whether
@@ -279,9 +264,9 @@
   "Given a bootstrapped TrapperKeeper app, let the application run until shut down,
   which may be triggered by one of several different ways. In all cases, services
   will be shut down and any exceptions they might throw will be caught and logged."
-  [^TrapperKeeperApp app]
-  {:pre [(instance? TrapperKeeperApp app)]}
-  (let [shutdown-reason (wait-for-shutdown app)]
+  [app]
+  {:pre [(satisfies? TrapperkeeperApp app)]}
+  (let [shutdown-reason (wait-for-app-shutdown app)]
     (when (initiated-internally? shutdown-reason)
       (call-error-handler! shutdown-reason)
       (shutdown!)

@@ -14,20 +14,25 @@
 
 (defservice hello-world-service
             HelloWorldService
+            []
             (hello-world [this] "hello world"))
 
 (defservice foo-test-service
             TestService
+            []
             (test-fn [this] :foo))
 
 (defservice classpath-test-service
             TestService
+            []
             (test-fn [this] :classpath))
 
 (defservice cwd-test-service
             TestService
+            []
             (test-fn [this] :cwd))
 
 (defservice cli-test-service
             TestService
+            []
             (test-fn [this] :cli))

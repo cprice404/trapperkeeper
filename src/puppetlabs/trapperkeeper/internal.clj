@@ -4,7 +4,7 @@
             [plumbing.graph :refer [eager-compile]]
             [plumbing.fnk.pfnk :refer [input-schema output-schema fn->fnk]]
             [puppetlabs.kitchensink.core :refer [add-shutdown-hook! boolean? cli!]]
-            [puppetlabs.trapperkeeper.services :refer [service]]))
+            [puppetlabs.trapperkeeper.services :refer [service ServiceDefinition service-map]]))
 
 ;  A type representing a trapperkeeper application.  This is intended to provide
 ;  an abstraction so that users don't need to worry about the implementation
@@ -31,14 +31,21 @@
     (every? (some-fn ifn? service-graph?) (vals service-graph))))
 
 (defn validate-service-graph!
-  "Validates that the argument is a valid trapperkeeper service graph.  Throws
-  an IllegalArgumentException if it is not."
-  [service-graph]
-  (if (service-graph? service-graph)
-    service-graph
+  "Validates that a ServiceDefinition contains a valid trapperkeeper service graph.
+  Returns the service definition on success; throws an IllegalArgumentException
+  if the graph is invalid."
+  [service-def]
+  {:post [(satisfies? ServiceDefinition %)]}
+  (if-not (satisfies? ServiceDefinition service-def)
+    (throw (IllegalArgumentException.
+             (str "Invalid service definition; expected a service "
+                  "definition (created via `service` or `defservice`); "
+                  "found: " (pr-str service-def)))))
+  (if (service-graph? (service-map service-def))
+    service-def
     (throw (IllegalArgumentException. (str "Invalid service graph; service graphs must "
                                            "be nested maps of keywords to functions.  Found: "
-                                           service-graph)))))
+                                           (service-map service-def))))))
 
 (defn compile-graph
   "Given the merged map of services, compile it into a function suitable for instantiation.

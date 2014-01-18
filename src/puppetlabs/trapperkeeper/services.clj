@@ -13,6 +13,8 @@
   (init [this context] "Initialize the service, given a context map.
                         Must return the (possibly modified) context map.")
   (start [this context] "Start the service, given a context map.
+                         Must return the (possibly modified) context map.")
+  (stop [this context] "Stop the service, given a context map.
                          Must return the (possibly modified) context map."))
 
 (defprotocol Service

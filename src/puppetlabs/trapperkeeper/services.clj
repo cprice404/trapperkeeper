@@ -31,7 +31,21 @@
 (def lifecycle-fn-names (map :name (vals (:sigs ServiceLifecycle))))
 
 (defmacro service
-  ;; TODO DOCS
+  "Create a Trapperkeeper ServiceDefinition.
+
+  First argument (optional) is a protocol indicating the list of functions that
+  this service exposes for use by other Trapperkeeper services.
+
+  Second argument is the dependency list; this should be a vector of vectors.
+  Each inner vector should begin with a keyword representation of the name of the
+  service protocol that the service depends upon.  All remaining items in the inner
+  vectors should be symbols representing functions that should be imported from
+  the service.
+
+  The remaining arguments should be function definitions for this service, specified
+  in the format that is used by a normal clojure `reify`.  The legal list of functions
+  that may be specified includes whatever functions are defined by this service's
+  protocol (if it has one), plus the list of functions in the `ServiceLifecycle` protocol."
   [& forms]
   (let [{:keys [service-protocol-sym service-id service-fn-names
                 dependencies fns-map]}

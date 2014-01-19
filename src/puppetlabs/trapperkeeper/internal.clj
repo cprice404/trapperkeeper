@@ -1,10 +1,12 @@
 (ns puppetlabs.trapperkeeper.internal
+  (:import (clojure.lang Atom))
   (:require [clojure.tools.logging :as log]
             [plumbing.map]
             [plumbing.graph :refer [eager-compile]]
             [plumbing.fnk.pfnk :refer [input-schema output-schema fn->fnk]]
             [puppetlabs.kitchensink.core :refer [add-shutdown-hook! boolean? cli!]]
-            [puppetlabs.trapperkeeper.services :refer [service ServiceDefinition service-map]]))
+            [puppetlabs.trapperkeeper.services :refer [ServiceDefinition ServiceLifecycle
+                                                       service service-map stop]]))
 
 ;  A type representing a trapperkeeper application.  This is intended to provide
 ;  an abstraction so that users don't need to worry about the implementation
@@ -14,7 +16,8 @@
 (defprotocol TrapperkeeperApp
   "Functions available on a trapperkeeper application instance"
   (get-service [this service-id] "Returns the service with the given service id")
-  (service-graph [this] "Returns the prismatic graph of service fns for this app"))
+  (service-graph [this] "Returns the prismatic graph of service fns for this app")
+  (app-context [this] "Returns the application context for this app (an atom containing a map)"))
 
 (def ^{:doc "Alias for plumbing.map/map-leaves-and-path, which is named inconsistently
             with Clojure conventions as it doesn't behave like other `map` functions.
@@ -97,6 +100,35 @@
         required    [:config]]
     (first (cli! cli-args specs required))))
 
+(defn run-lifecycle-fn
+  "Run a lifecycle function for a service.  Required arguments:
+
+  * app-context: the app context atom; can be updated by the lifecycle fn
+  * lifecycle-fn: a fn from the ServiceLifecycle protocol
+  * lifecycle-fn-name: a string containing the name of the lifecycle fn that
+                       is being run.  This is only used to produce a readable
+                       error message if an error occurs.
+  * service-id: the id of the service that the lifecycle fn is being run on
+  * s: the service that the lifecycle fn is being run on"
+  [app-context lifecycle-fn lifecycle-fn-name service-id s]
+  {:pre [(instance? Atom app-context)
+         (ifn? lifecycle-fn)
+         (string? lifecycle-fn-name)
+         (keyword? service-id)
+         (satisfies? ServiceLifecycle s)]}
+  (let [;; call the lifecycle function on the service, and keep a reference
+        ;; to the updated context map that it returns
+        updated-ctxt  (lifecycle-fn s (get @app-context service-id {}))]
+    (if-not (map? updated-ctxt)
+      (throw (IllegalStateException.
+               (format
+                 "Lifecycle function '%s' for service '%s' must return a context map (got: %s)"
+                 lifecycle-fn-name
+                 service-id
+                 (pr-str updated-ctxt)))))
+    ;; store the updated service context map in the application context atom
+    (swap! app-context assoc service-id updated-ctxt)))
+
 ;;;; Application Shutdown Support
 ;;;;
 ;;;; The next section of this namespace
@@ -125,14 +157,6 @@
 (def ^{:private true
        :doc "The possible causes for shutdown to be initiated."}
   shutdown-causes #{:requested :service-error :jvm-shutdown-hook})
-
-(def ^{:private true
-       :doc "List of service shutdown hooks in service-dependency order."}
-  ;; Note that we maintain this list of shutdown functions as
-  ;; opposed to walking the graph because there's no `walk`
-  ;; function in the Prismatic library that guarantees traversal
-  ;; in dependency order.
-  shutdown-fns (atom ()))
 
 (defn request-shutdown*
   "Initiate the normal shutdown of TrapperKeeper. This is asynchronous.
@@ -168,7 +192,7 @@
 (defprotocol ShutdownService
   (wait-for-shutdown [this])
   (request-shutdown [this] "Asynchronously trigger normal shutdown")
-  (shutdown-on-error [this f on-error]
+  (shutdown-on-error [this f] [this f on-error]
     "Higher-order function to execute application logic and trigger shutdown in
     the event of an exception"))
 
@@ -188,47 +212,49 @@
     []
     (wait-for-shutdown [this] (deref shutdown-reason-promise))
     (request-shutdown [this]  (request-shutdown* shutdown-reason-promise))
+    (shutdown-on-error [this f] (shutdown-on-error* shutdown-reason-promise f))
     (shutdown-on-error [this f on-error] (shutdown-on-error* shutdown-reason-promise f on-error))))
 
+(defn ordered-services?
+  "Predicate that validates that an object is an ordered list of services as required
+  for the app context map.  Each item in the list must be a tuple whose first element
+  is a service id (keyword) and whose second element is the service instance."
+  [os]
+  (or (nil? os)
+      (and
+        (sequential? os)
+        (every? vector? os)
+        (every? #(= (count %) 2) os)
+        (every? #(keyword? (first %)) os)
+        (every? #(satisfies? ServiceLifecycle (second %)) os))))
+
 (defn shutdown!
-  "Perform shutdown on the application by calling all service shutdown hooks.
-  Services will be shut down in dependency order."
-  []
+  "Perform shutdown calling the `stop` lifecycel function on each service,
+   in reverse order (to account for dependency relationships)."
+  [app-context]
+  {:pre [(instance? Atom app-context)
+         (let [ctxt @app-context]
+           (and (map? ctxt)
+                (ordered-services? (ctxt :ordered-services))))]}
   (log/info "Beginning shutdown sequence")
-  (doseq [f @shutdown-fns]
+  (doseq [[sid s] (reverse (@app-context :ordered-services))]
     (try
-      (f)
+      (run-lifecycle-fn app-context stop "stop" sid s)
       (catch Exception e
         (log/error e "Encountered error during shutdown sequence"))))
   (log/info "Finished shutdown sequence"))
 
-(defn- grab-shutdown-functions!
-  "Given a path to a service in the graph, extract the shutdown function from
-  the service and add it to the `shutdown-fns` list atom."
-  [path orig-fnk]
-  {:pre  [(sequential? path)
-          (ifn? orig-fnk)]
-   :post [(ifn? %)]}
-  (let [in  (input-schema orig-fnk)
-        out (output-schema orig-fnk)
-        f   (fn [injected-vals]
-              (let [result (orig-fnk injected-vals)]
-                (when-let [shutdown-fn (result :shutdown)]
-                  (swap! shutdown-fns conj shutdown-fn))
-                result))]
-    (fn->fnk f [in out])))
-
-#_(defn register-shutdown-hooks!
-  "Walk the graph and register all shutdown functions. The functions
-  will be called when the JVM shuts down, or by calling `shutdown!`."
-  [graph]
-  (let [wrapped-graph           (walk-leaves-and-path grab-shutdown-functions! graph)
-        shutdown-reason-promise (promise)
-        shutdown-service        (shutdown-service shutdown-reason-promise)]
+(defn initialize-shutdown-service!
+  "Initialize the shutdown service and add a shutdown hook to the JVM."
+  [app-context]
+  {:pre [(instance? Atom app-context)]
+   :post [(satisfies? ServiceDefinition %)]}
+  (let [shutdown-reason-promise (promise)
+        shutdown-service (shutdown-service shutdown-reason-promise)]
     (add-shutdown-hook! #(when-not (realized? shutdown-reason-promise)
-                          (shutdown!)
+                          (shutdown! app-context)
                           (deliver shutdown-reason-promise {:cause :jvm-shutdown-hook})))
-    (merge shutdown-service wrapped-graph)))
+    shutdown-service))
 
 (defn wait-for-app-shutdown
   "Wait for shutdown to be initiated - either externally (such as Ctrl-C) or
@@ -277,6 +303,6 @@
   (let [shutdown-reason (wait-for-app-shutdown app)]
     (when (initiated-internally? shutdown-reason)
       (call-error-handler! shutdown-reason)
-      (shutdown!)
+      (shutdown! (app-context app))
       (when-let [error (:error shutdown-reason)]
         (throw error)))))

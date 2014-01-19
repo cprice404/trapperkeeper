@@ -12,8 +12,10 @@
                                                      config-service]]
             [puppetlabs.trapperkeeper.internal :refer [validate-service-graph!
                                                        service-graph?
+                                                       initialize-shutdown-service!
                                                        compile-graph
                                                        instantiate
+                                                       run-lifecycle-fn
                                                        TrapperkeeperApp]]
             [puppetlabs.trapperkeeper.services :refer [ServiceDefinition
                                                        service-map
@@ -174,50 +176,41 @@
   {:pre  [(sequential? services)
           (every? #(satisfies? ServiceDefinition %) services)]
    :post [(satisfies? TrapperkeeperApp %)]}
-  (let [services       (conj services (config-service config-data))
+  (let [;; this is the application context for this app instance.  its keys
+        ;; will be the service ids, and values will be maps that represent the
+        ;; context for each individual service
+        app-context    (atom {})
+        services       (conj services
+                             (config-service config-data)
+                             (initialize-shutdown-service! app-context))
         service-map    (apply merge (map service-map services))
         compiled-graph (compile-graph service-map)
         ;; this gives us an ordered graph that we can use to call lifecycle
         ;; functions in the correct order later
         graph          (g/->graph service-map)
-        ;; this is the application context for this app instance.  its keys
-        ;; will be the service ids, and values will be maps that represent the
-        ;; context for each individual service
-        context        (atom {})
         ;; when we instantiate the graph, we pass in the context atom.
-        graph-instance (instantiate compiled-graph {:context context})
+        graph-instance (instantiate compiled-graph {:context app-context})
         ;; here we build up a map of all of the services by calling the
         ;; constructor for each one
         services-by-id (into {} (map
                                   (fn [sd] [(service-id sd)
-                                            ((service-constructor sd) graph-instance context)])
+                                            ((service-constructor sd) graph-instance app-context)])
                                   services))
+        ordered-services (map (fn [[sid _]] [sid (services-by-id sid)]) graph)
+        _              (swap! app-context assoc :ordered-services ordered-services)
         ;; finally, create the app instance
         app            (reify
                          TrapperkeeperApp
                          (get-service [this protocol] (services-by-id (keyword protocol)))
-                         (service-graph [this] graph-instance))]
+                         (service-graph [this] graph-instance)
+                         (app-context [this] app-context))]
 
     ;; iterate over the lifecycle functions in order
-    (doseq [[lifecycle-fn lifecycle-fn-name]  [[init "init"] [start "start"]]
+    (doseq [[lifecycle-fn lifecycle-fn-name] [[init "init"] [start "start"]]
             ;; and iterate over the services, based on the ordered graph so
             ;; that we know their dependencies are taken into account
-            graph-entry                       graph]
-
-      (let [service-id    (first graph-entry)
-            s             (services-by-id service-id)
-            ;; call the lifecycle function on the service, and keep a reference
-            ;; to the updated context map that it returns
-            updated-ctxt  (lifecycle-fn s (get @context service-id {}))]
-        (if-not (map? updated-ctxt)
-          (throw (IllegalStateException.
-                   (format
-                     "Lifecycle function '%s' for service '%s' must return a context map (got: %s)"
-                     lifecycle-fn-name
-                     service-id
-                     (pr-str updated-ctxt)))))
-        ;; store the updated service context map in the application context atom
-        (swap! context assoc service-id updated-ctxt)))
+            [sid s]                          ordered-services]
+      (run-lifecycle-fn app-context lifecycle-fn lifecycle-fn-name sid s))
     app)
   )
 

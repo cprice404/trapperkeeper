@@ -6,7 +6,10 @@
             [puppetlabs.trapperkeeper.internal :refer [get-service parse-cli-args!]]
             [puppetlabs.trapperkeeper.core :as trapperkeeper]
             [puppetlabs.trapperkeeper.testutils.bootstrap :refer :all]
-            [puppetlabs.trapperkeeper.config :as config]))
+            [puppetlabs.trapperkeeper.config :as config]
+            [puppetlabs.trapperkeeper.testutils.logging :refer [reset-logging-config-after-test]]))
+
+(use-fixtures :each reset-logging-config-after-test)
 
 (defprotocol FooService
   (foo [this]))

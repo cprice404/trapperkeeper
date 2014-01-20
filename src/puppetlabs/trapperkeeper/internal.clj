@@ -5,8 +5,7 @@
             [plumbing.graph :refer [eager-compile]]
             [plumbing.fnk.pfnk :refer [input-schema output-schema fn->fnk]]
             [puppetlabs.kitchensink.core :refer [add-shutdown-hook! boolean? cli!]]
-            [puppetlabs.trapperkeeper.services :refer [ServiceDefinition Lifecycle
-                                                       service service-map stop]]))
+            [puppetlabs.trapperkeeper.services :as s]))
 
 ;  A type representing a trapperkeeper application.  This is intended to provide
 ;  an abstraction so that users don't need to worry about the implementation
@@ -17,7 +16,10 @@
   "Functions available on a trapperkeeper application instance"
   (get-service [this service-id] "Returns the service with the given service id")
   (service-graph [this] "Returns the prismatic graph of service fns for this app")
-  (app-context [this] "Returns the application context for this app (an atom containing a map)"))
+  (app-context [this] "Returns the application context for this app (an atom containing a map)")
+  (init [this] "Initialize the services")
+  (start [this] "Start the services")
+  (stop [this] "Stop the services"))
 
 (def ^{:doc "Alias for plumbing.map/map-leaves-and-path, which is named inconsistently
             with Clojure conventions as it doesn't behave like other `map` functions.
@@ -39,17 +41,17 @@
   Returns the service definition on success; throws an IllegalArgumentException
   if the graph is invalid."
   [service-def]
-  {:post [(satisfies? ServiceDefinition %)]}
-  (if-not (satisfies? ServiceDefinition service-def)
+  {:post [(satisfies? s/ServiceDefinition %)]}
+  (if-not (satisfies? s/ServiceDefinition service-def)
     (throw (IllegalArgumentException.
              (str "Invalid service definition; expected a service "
                   "definition (created via `service` or `defservice`); "
                   "found: " (pr-str service-def)))))
-  (if (service-graph? (service-map service-def))
+  (if (service-graph? (s/service-map service-def))
     service-def
     (throw (IllegalArgumentException. (str "Invalid service graph; service graphs must "
                                            "be nested maps of keywords to functions.  Found: "
-                                           (service-map service-def))))))
+                                           (s/service-map service-def))))))
 
 (defn compile-graph
   "Given the merged map of services, compile it into a function suitable for instantiation.
@@ -115,7 +117,7 @@
          (ifn? lifecycle-fn)
          (string? lifecycle-fn-name)
          (keyword? service-id)
-         (satisfies? Lifecycle s)]}
+         (satisfies? s/Lifecycle s)]}
   (let [;; call the lifecycle function on the service, and keep a reference
         ;; to the updated context map that it returns
         updated-ctxt  (lifecycle-fn s (get @app-context service-id {}))]
@@ -216,7 +218,7 @@
 
   For more information, see `request-shutdown` and `shutdown-on-error`."
   [shutdown-reason-promise]
-  (service ShutdownService
+  (s/service ShutdownService
     []
     (wait-for-shutdown [this] (deref shutdown-reason-promise))
     (request-shutdown [this]  (request-shutdown* shutdown-reason-promise))
@@ -234,10 +236,10 @@
         (every? vector? os)
         (every? #(= (count %) 2) os)
         (every? #(keyword? (first %)) os)
-        (every? #(satisfies? Lifecycle (second %)) os))))
+        (every? #(satisfies? s/Lifecycle (second %)) os))))
 
 (defn shutdown!
-  "Perform shutdown calling the `stop` lifecycel function on each service,
+  "Perform shutdown calling the `stop` lifecycle function on each service,
    in reverse order (to account for dependency relationships)."
   [app-context]
   {:pre [(instance? Atom app-context)
@@ -247,7 +249,7 @@
   (log/info "Beginning shutdown sequence")
   (doseq [[sid s] (reverse (@app-context :ordered-services))]
     (try
-      (run-lifecycle-fn app-context stop "stop" sid s)
+      (run-lifecycle-fn app-context s/stop "stop" sid s)
       (catch Exception e
         (log/error e "Encountered error during shutdown sequence"))))
   (log/info "Finished shutdown sequence"))
@@ -256,7 +258,7 @@
   "Initialize the shutdown service and add a shutdown hook to the JVM."
   [app-context]
   {:pre [(instance? Atom app-context)]
-   :post [(satisfies? ServiceDefinition %)]}
+   :post [(satisfies? s/ServiceDefinition %)]}
   (let [shutdown-reason-promise (promise)
         shutdown-service (shutdown-service shutdown-reason-promise)]
     (add-shutdown-hook! #(when-not (realized? shutdown-reason-promise)

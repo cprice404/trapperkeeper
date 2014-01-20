@@ -10,21 +10,8 @@
             [puppetlabs.trapperkeeper.config :refer [parse-config-data
                                                      initialize-logging!
                                                      config-service]]
-            [puppetlabs.trapperkeeper.internal :refer [validate-service-graph!
-                                                       service-graph?
-                                                       initialize-shutdown-service!
-                                                       compile-graph
-                                                       instantiate
-                                                       run-lifecycle-fns
-                                                       TrapperkeeperApp
-                                                       shutdown!]]
-            [puppetlabs.trapperkeeper.services :refer [ServiceDefinition
-                                                       Lifecycle
-                                                       service-map
-                                                       service-id
-                                                       service-constructor
-                                                       init
-                                                       start]]))
+            [puppetlabs.trapperkeeper.internal :as i]
+            [puppetlabs.trapperkeeper.services :as s]))
 
 (def bootstrap-config-file-name "bootstrap.cfg")
 
@@ -55,14 +42,14 @@
   [resolve-ns service-name]
   {:pre  [(string? resolve-ns)
           (string? service-name)]
-   :post [(satisfies? ServiceDefinition %)]}
+   :post [(satisfies? s/ServiceDefinition %)]}
   (try (require (symbol resolve-ns))
        (catch FileNotFoundException e
          (throw (IllegalArgumentException.
                   (str "Unable to load service: " resolve-ns "/" service-name)
                   e))))
   (if-let [service-def (ns-resolve (symbol resolve-ns) (symbol service-name))]
-    (validate-service-graph! (var-get service-def))
+    (i/validate-service-graph! (var-get service-def))
     (throw (IllegalArgumentException.
              (str "Unable to load service: " resolve-ns "/" service-name)))))
 
@@ -163,7 +150,7 @@
   [config]
   {:pre  [(satisfies? IOFactory config)]
    :post [(sequential? %)
-          (every? #(satisfies? ServiceDefinition %) %)]}
+          (every? #(satisfies? s/ServiceDefinition %) %)]}
   (let [lines (line-seq (reader config))]
     (when (empty? lines) (throw (Exception. "Empty bootstrap config file")))
     (for [line (map remove-comments lines)
@@ -176,41 +163,39 @@
    bootstrap and return the trapperkeeper application."
   [services config-data]
   {:pre  [(sequential? services)
-          (every? #(satisfies? ServiceDefinition %) services)]
-   :post [(satisfies? TrapperkeeperApp %)]}
+          (every? #(satisfies? s/ServiceDefinition %) services)]
+   :post [(satisfies? i/TrapperkeeperApp %)]}
   (let [;; this is the application context for this app instance.  its keys
         ;; will be the service ids, and values will be maps that represent the
         ;; context for each individual service
         app-context    (atom {})
         services       (conj services
                              (config-service config-data)
-                             (initialize-shutdown-service! app-context))
-        service-map    (apply merge (map service-map services))
-        compiled-graph (compile-graph service-map)
+                             (i/initialize-shutdown-service! app-context))
+        service-map    (apply merge (map s/service-map services))
+        compiled-graph (i/compile-graph service-map)
         ;; this gives us an ordered graph that we can use to call lifecycle
         ;; functions in the correct order later
         graph          (g/->graph service-map)
         ;; when we instantiate the graph, we pass in the context atom.
-        graph-instance (instantiate compiled-graph {:context app-context})
+        graph-instance (i/instantiate compiled-graph {:context app-context})
         ;; here we build up a map of all of the services by calling the
         ;; constructor for each one
         services-by-id (into {} (map
-                                  (fn [sd] [(service-id sd)
-                                            ((service-constructor sd) graph-instance app-context)])
+                                  (fn [sd] [(s/service-id sd)
+                                            ((s/service-constructor sd) graph-instance app-context)])
                                   services))
         ordered-services (map (fn [[sid _]] [sid (services-by-id sid)]) graph)
         _              (swap! app-context assoc :ordered-services ordered-services)
         ;; finally, create the app instance
         app            (reify
-                         TrapperkeeperApp
-                         (get-service [this protocol] (services-by-id (keyword protocol)))
-                         (service-graph [this] graph-instance)
-                         (app-context [this] app-context)
-
-                         Lifecycle
-                         (init [this _] (run-lifecycle-fns app-context init "init" ordered-services))
-                         (start [this _] (run-lifecycle-fns app-context start "start" ordered-services))
-                         (stop [this _] (shutdown! app-context)))]
+                         i/TrapperkeeperApp
+                         (i/get-service [this protocol] (services-by-id (keyword protocol)))
+                         (i/service-graph [this] graph-instance)
+                         (i/app-context [this] app-context)
+                         (i/init [this] (i/run-lifecycle-fns app-context s/init "init" ordered-services))
+                         (i/start [this] (i/run-lifecycle-fns app-context s/start "start" ordered-services))
+                         (i/stop [this] (i/shutdown! app-context)))]
 
     ;; iterate over the lifecycle functions in order
     #_(doseq [[lifecycle-fn lifecycle-fn-name] [[init "init"] [start "start"]]
@@ -218,8 +203,8 @@
             ;; that we know their dependencies are taken into account
             [sid s]                          ordered-services]
       (run-lifecycle-fn app-context lifecycle-fn lifecycle-fn-name sid s))
-    (init app {})
-    (start app {})
+    (i/init app)
+    (i/start app)
     app)
   )
 
@@ -246,7 +231,7 @@
   [cli-data]
   {:pre  [(map? cli-data)
           (contains? cli-data :config)]
-   :post [(satisfies? TrapperkeeperApp %)]}
+   :post [(satisfies? i/TrapperkeeperApp %)]}
   ;; There is a strict order of operations that need to happen here:
   ;; 1. parse config files
   ;; 2. initialize logging

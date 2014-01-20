@@ -2,9 +2,10 @@
   (:import (clojure.lang Atom))
   (:require [clojure.tools.logging :as log]
             [plumbing.map]
-            [plumbing.graph :refer [eager-compile]]
+            [plumbing.graph :as g]
             [plumbing.fnk.pfnk :refer [input-schema output-schema fn->fnk]]
             [puppetlabs.kitchensink.core :refer [add-shutdown-hook! boolean? cli!]]
+            [puppetlabs.trapperkeeper.config :refer [config-service]]
             [puppetlabs.trapperkeeper.services :as s]))
 
 ;  A type representing a trapperkeeper application.  This is intended to provide
@@ -12,6 +13,7 @@
 ;  details and can pass the app object to our functions in a type-safe way.
 ;  The internal properties are not intended to be used outside of this
 ;  namespace.
+;; TODO: move TrapperkeeperApp out of "internal" namespace since it is useful in REPL
 (defprotocol TrapperkeeperApp
   "Functions available on a trapperkeeper application instance"
   (get-service [this service-id] "Returns the service with the given service id")
@@ -20,12 +22,6 @@
   (init [this] "Initialize the services")
   (start [this] "Start the services")
   (stop [this] "Stop the services"))
-
-(def ^{:doc "Alias for plumbing.map/map-leaves-and-path, which is named inconsistently
-            with Clojure conventions as it doesn't behave like other `map` functions.
-            Map functions typically return a `seq`, never a map, and walk functions
-            are used to modify a collection in-place without altering the structure."}
-  walk-leaves-and-path plumbing.map/map-leaves-and-path)
 
 (defn service-graph?
   "Predicate that tests whether or not the argument is a valid trapperkeeper
@@ -60,7 +56,7 @@
   {:pre  [(service-graph? graph-map)]
    :post [(ifn? %)]}
   (try
-    (eager-compile graph-map)
+    (g/eager-compile graph-map)
     (catch IllegalArgumentException e
       ;; TODO: when prismatic releases version 0.2.0 of plumbing, we should clean this
       ;; up.  See: https://tickets.puppetlabs.com/browse/PE-2281
@@ -303,6 +299,53 @@
         (log/error e "Error occurred during shutdown")))))
 
 ;;;; end of shutdown-related functions
+
+;; TODO: move build-app out of "internal" namespace since it is useful in REPL
+(defn build-app
+  "Given a list of services and a map of configuration data, build an instance
+  of a TrapperkeeperApp.  Services are not yet initialized or started."
+  [services config-data]
+  {:pre  [(sequential? services)
+          (every? #(satisfies? s/ServiceDefinition %) services)
+          (map? config-data)]
+   :post [(satisfies? TrapperkeeperApp %)]}
+  (let [;; this is the application context for this app instance.  its keys
+        ;; will be the service ids, and values will be maps that represent the
+        ;; context for each individual service
+         app-context (atom {})
+         services (conj services
+                        (config-service config-data)
+                        (initialize-shutdown-service! app-context))
+         service-map (apply merge (map s/service-map services))
+         compiled-graph (compile-graph service-map)
+        ;; this gives us an ordered graph that we can use to call lifecycle
+        ;; functions in the correct order later
+         graph (g/->graph service-map)
+        ;; when we instantiate the graph, we pass in the context atom.
+         graph-instance (instantiate compiled-graph {:context app-context})
+        ;; here we build up a map of all of the services by calling the
+        ;; constructor for each one
+         services-by-id (into {} (map
+                                   (fn [sd] [(s/service-id sd)
+                                             ((s/service-constructor sd) graph-instance app-context)])
+                                   services))
+         ordered-services (map (fn [[sid _]] [sid (services-by-id sid)]) graph)
+         _ (swap! app-context assoc :ordered-services ordered-services)]
+    ;; finally, create the app instance
+    (reify
+      TrapperkeeperApp
+      (get-service [this protocol] (services-by-id (keyword protocol)))
+      (service-graph [this] graph-instance)
+      (app-context [this] app-context)
+      (init [this]
+        (run-lifecycle-fns app-context s/init "init" ordered-services)
+        this)
+      (start [this]
+        (run-lifecycle-fns app-context s/start "start" ordered-services)
+        this)
+      (stop [this]
+        (shutdown! app-context)
+        this))))
 
 (defn run-app
   "Given a bootstrapped TrapperKeeper app, let the application run until shut down,

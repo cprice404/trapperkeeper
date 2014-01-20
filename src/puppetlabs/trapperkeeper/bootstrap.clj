@@ -5,11 +5,9 @@
             [clojure.string :as string]
             [clojure.java.io :refer [reader resource file input-stream]]
             [clojure.tools.logging :as log]
-            [plumbing.graph :as g]
             [puppetlabs.trapperkeeper.plugins :as plugins]
             [puppetlabs.trapperkeeper.config :refer [parse-config-data
-                                                     initialize-logging!
-                                                     config-service]]
+                                                     initialize-logging!]]
             [puppetlabs.trapperkeeper.internal :as i]
             [puppetlabs.trapperkeeper.services :as s]))
 
@@ -163,50 +161,13 @@
    bootstrap and return the trapperkeeper application."
   [services config-data]
   {:pre  [(sequential? services)
-          (every? #(satisfies? s/ServiceDefinition %) services)]
+          (every? #(satisfies? s/ServiceDefinition %) services)
+          (map? config-data)]
    :post [(satisfies? i/TrapperkeeperApp %)]}
-  (let [;; this is the application context for this app instance.  its keys
-        ;; will be the service ids, and values will be maps that represent the
-        ;; context for each individual service
-        app-context    (atom {})
-        services       (conj services
-                             (config-service config-data)
-                             (i/initialize-shutdown-service! app-context))
-        service-map    (apply merge (map s/service-map services))
-        compiled-graph (i/compile-graph service-map)
-        ;; this gives us an ordered graph that we can use to call lifecycle
-        ;; functions in the correct order later
-        graph          (g/->graph service-map)
-        ;; when we instantiate the graph, we pass in the context atom.
-        graph-instance (i/instantiate compiled-graph {:context app-context})
-        ;; here we build up a map of all of the services by calling the
-        ;; constructor for each one
-        services-by-id (into {} (map
-                                  (fn [sd] [(s/service-id sd)
-                                            ((s/service-constructor sd) graph-instance app-context)])
-                                  services))
-        ordered-services (map (fn [[sid _]] [sid (services-by-id sid)]) graph)
-        _              (swap! app-context assoc :ordered-services ordered-services)
-        ;; finally, create the app instance
-        app            (reify
-                         i/TrapperkeeperApp
-                         (i/get-service [this protocol] (services-by-id (keyword protocol)))
-                         (i/service-graph [this] graph-instance)
-                         (i/app-context [this] app-context)
-                         (i/init [this] (i/run-lifecycle-fns app-context s/init "init" ordered-services))
-                         (i/start [this] (i/run-lifecycle-fns app-context s/start "start" ordered-services))
-                         (i/stop [this] (i/shutdown! app-context)))]
-
-    ;; iterate over the lifecycle functions in order
-    #_(doseq [[lifecycle-fn lifecycle-fn-name] [[init "init"] [start "start"]]
-            ;; and iterate over the services, based on the ordered graph so
-            ;; that we know their dependencies are taken into account
-            [sid s]                          ordered-services]
-      (run-lifecycle-fn app-context lifecycle-fn lifecycle-fn-name sid s))
+  (let [app (i/build-app services config-data)]
     (i/init app)
     (i/start app)
-    app)
-  )
+    app))
 
 (defn bootstrap
   "Bootstrap a trapperkeeper application.  This is accomplished by reading a

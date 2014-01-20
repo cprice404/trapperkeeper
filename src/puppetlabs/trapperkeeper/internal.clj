@@ -5,7 +5,7 @@
             [plumbing.graph :refer [eager-compile]]
             [plumbing.fnk.pfnk :refer [input-schema output-schema fn->fnk]]
             [puppetlabs.kitchensink.core :refer [add-shutdown-hook! boolean? cli!]]
-            [puppetlabs.trapperkeeper.services :refer [ServiceDefinition ServiceLifecycle
+            [puppetlabs.trapperkeeper.services :refer [ServiceDefinition Lifecycle
                                                        service service-map stop]]))
 
 ;  A type representing a trapperkeeper application.  This is intended to provide
@@ -104,7 +104,7 @@
   "Run a lifecycle function for a service.  Required arguments:
 
   * app-context: the app context atom; can be updated by the lifecycle fn
-  * lifecycle-fn: a fn from the ServiceLifecycle protocol
+  * lifecycle-fn: a fn from the Lifecycle protocol
   * lifecycle-fn-name: a string containing the name of the lifecycle fn that
                        is being run.  This is only used to produce a readable
                        error message if an error occurs.
@@ -115,7 +115,7 @@
          (ifn? lifecycle-fn)
          (string? lifecycle-fn-name)
          (keyword? service-id)
-         (satisfies? ServiceLifecycle s)]}
+         (satisfies? Lifecycle s)]}
   (let [;; call the lifecycle function on the service, and keep a reference
         ;; to the updated context map that it returns
         updated-ctxt  (lifecycle-fn s (get @app-context service-id {}))]
@@ -128,6 +128,14 @@
                  (pr-str updated-ctxt)))))
     ;; store the updated service context map in the application context atom
     (swap! app-context assoc service-id updated-ctxt)))
+
+(defn run-lifecycle-fns
+  ;; TODO docs
+  [app-context lifecycle-fn lifecycle-fn-name ordered-services]
+  ;; and iterate over the services, based on the ordered graph so
+  ;; that we know their dependencies are taken into account
+  (doseq [[sid s] ordered-services]
+    (run-lifecycle-fn app-context lifecycle-fn lifecycle-fn-name sid s)))
 
 ;;;; Application Shutdown Support
 ;;;;
@@ -226,7 +234,7 @@
         (every? vector? os)
         (every? #(= (count %) 2) os)
         (every? #(keyword? (first %)) os)
-        (every? #(satisfies? ServiceLifecycle (second %)) os))))
+        (every? #(satisfies? Lifecycle (second %)) os))))
 
 (defn shutdown!
   "Perform shutdown calling the `stop` lifecycel function on each service,

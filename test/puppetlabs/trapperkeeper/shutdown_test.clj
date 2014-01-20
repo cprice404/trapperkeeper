@@ -14,7 +14,7 @@
 (defprotocol ShutdownTestServiceWithFn
   (test-fn [this]))
 
-(deftest shutdown
+(deftest shutdown-test
   (testing "service with shutdown hook gets called during shutdown"
     (let [shutdown-called?  (atom false)
           test-service      (service []

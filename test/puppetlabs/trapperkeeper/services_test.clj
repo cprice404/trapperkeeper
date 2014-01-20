@@ -1,7 +1,7 @@
 (ns puppetlabs.trapperkeeper.services-test
   (:require [clojure.test :refer :all]
             [puppetlabs.trapperkeeper.services :refer
-                [ServiceDefinition Service ServiceLifecycle
+                [ServiceDefinition Service Lifecycle
                  defservice service service-context]]
             [puppetlabs.trapperkeeper.internal :refer [TrapperkeeperApp get-service]]
             [puppetlabs.trapperkeeper.testutils.bootstrap :refer
@@ -27,7 +27,7 @@
 
     (let [h-s (get-service app :HelloService)]
       (testing "service satisfies all protocols"
-        (is (satisfies? ServiceLifecycle h-s))
+        (is (satisfies? Lifecycle h-s))
         (is (satisfies? Service h-s))
         (is (satisfies? HelloService h-s)))
 

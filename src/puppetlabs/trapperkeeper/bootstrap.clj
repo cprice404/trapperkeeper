@@ -15,9 +15,11 @@
                                                        initialize-shutdown-service!
                                                        compile-graph
                                                        instantiate
-                                                       run-lifecycle-fn
-                                                       TrapperkeeperApp]]
+                                                       run-lifecycle-fns
+                                                       TrapperkeeperApp
+                                                       shutdown!]]
             [puppetlabs.trapperkeeper.services :refer [ServiceDefinition
+                                                       Lifecycle
                                                        service-map
                                                        service-id
                                                        service-constructor
@@ -203,14 +205,21 @@
                          TrapperkeeperApp
                          (get-service [this protocol] (services-by-id (keyword protocol)))
                          (service-graph [this] graph-instance)
-                         (app-context [this] app-context))]
+                         (app-context [this] app-context)
+
+                         Lifecycle
+                         (init [this _] (run-lifecycle-fns app-context init "init" ordered-services))
+                         (start [this _] (run-lifecycle-fns app-context start "start" ordered-services))
+                         (stop [this _] (shutdown! app-context)))]
 
     ;; iterate over the lifecycle functions in order
-    (doseq [[lifecycle-fn lifecycle-fn-name] [[init "init"] [start "start"]]
+    #_(doseq [[lifecycle-fn lifecycle-fn-name] [[init "init"] [start "start"]]
             ;; and iterate over the services, based on the ordered graph so
             ;; that we know their dependencies are taken into account
             [sid s]                          ordered-services]
       (run-lifecycle-fn app-context lifecycle-fn lifecycle-fn-name sid s))
+    (init app {})
+    (start app {})
     app)
   )
 

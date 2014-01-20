@@ -6,7 +6,9 @@
             [puppetlabs.kitchensink.core :refer [select-values keyset]]
             [puppetlabs.trapperkeeper.services-internal :as si]))
 
-(defprotocol ServiceLifecycle
+;; TODO: Look into re-using an existing protocol for the life cycle.
+;; (Component?  Jig?) Just didn't want to introduce the dependency for now.
+(defprotocol Lifecycle
   "Lifecycle functions for a service.  All services satisfy this protocol, and
   the lifecycle functions for each service will be called at the appropriate
   phase during the application lifecycle."
@@ -28,7 +30,7 @@
   (service-map [this] "The map of service functions for the graph")
   (service-constructor [this] "A constructor function to instantiate the service"))
 
-(def lifecycle-fn-names (map :name (vals (:sigs ServiceLifecycle))))
+(def lifecycle-fn-names (map :name (vals (:sigs Lifecycle))))
 
 (defmacro service
   "Create a Trapperkeeper ServiceDefinition.
@@ -45,7 +47,7 @@
   The remaining arguments should be function definitions for this service, specified
   in the format that is used by a normal clojure `reify`.  The legal list of functions
   that may be specified includes whatever functions are defined by this service's
-  protocol (if it has one), plus the list of functions in the `ServiceLifecycle` protocol."
+  protocol (if it has one), plus the list of functions in the `Lifecycle` protocol."
   [& forms]
   (let [{:keys [service-protocol-sym service-id service-fn-names
                 dependencies fns-map]}
@@ -86,7 +88,7 @@
                Service
                (service-context [this] (get @context# ~service-id {}))
 
-               ServiceLifecycle
+               Lifecycle
                ~@(si/protocol-fns lifecycle-fn-names fns-map)
 
                ~@(if service-protocol-sym

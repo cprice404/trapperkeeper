@@ -11,7 +11,7 @@
   a symbol representing the name of a service, and a symbol representing the
   name of the *protocol* for a service.  This is necessary because the `service`
   macro accepts both as optional leading arguments when defining a service."
-  {:service-sym (schema/pred symbol?)})
+  {:service-symbol (schema/pred symbol?)})
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -51,7 +51,7 @@
   [forms]
   (let [f (first forms)]
     (if (nil? (schema/check ServiceSymbol f))
-      (merge {:service-sym (get f :service-sym)} (find-prot-and-deps-forms! (rest forms)))
+      (merge {:service-sym (get f :service-symbol)} (find-prot-and-deps-forms! (rest forms)))
       (find-prot-and-deps-forms! forms))))
 
 ;(defn build-fns-map

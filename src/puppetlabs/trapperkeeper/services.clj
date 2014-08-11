@@ -185,5 +185,5 @@
   [svc-name & forms]
   (let [service-sym      (symbol (name (ns-name *ns*)) (name svc-name))
         [svc-name forms] (name-with-attributes svc-name forms)]
-    `(def ~svc-name (service {:service-sym ~service-sym} ~@forms))))
+    `(def ~svc-name (service {:service-symbol ~service-sym} ~@forms))))
 

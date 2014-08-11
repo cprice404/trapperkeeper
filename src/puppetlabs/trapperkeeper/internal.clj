@@ -420,7 +420,7 @@
          graph (g/->graph service-map)
         ;; when we instantiate the graph, we pass in the context atom.
         _ (println "instantiating graph")
-         graph-instance (instantiate compiled-graph {:context app-context})
+         graph-instance (instantiate compiled-graph {:tk-app-context app-context})
         ;; here we build up a map of all of the services by calling the
         ;; constructor for each one
          _ (println "ABOUT TO BUILD SERVICES-BY-ID")

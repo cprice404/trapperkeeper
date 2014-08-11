@@ -138,7 +138,7 @@
         ;fns-map       (si/build-fns-map fns)
         ;output-schema (si/build-output-schema fns-map)
         output-schema (si/build-output-schema (keys service-fn-names))
-        service-ref   (atom nil)
+        ;service-ref   (atom nil)
         ]
     (println "FNS-MAP:" fns-map)
     (println "lifecycle-fn-names:" lifecycle-fn-names)
@@ -152,8 +152,26 @@
             ;; the main service fnk for the app graph.  we add metadata to the fnk
             ;; arguments list to specify an explicit output schema for the fnk
             (fnk service-fnk# :- ~output-schema
-                ~dependencies
+                 ~(conj dependencies 'tk-app-context)
+                ;[~'tk-context]
+                ;~dependencies
                 (let [svc# (reify
+                             Service
+                             (service-id [this] ~service-id)
+                             (service-context [this] (get ~'@tk-app-context ~service-id {}))
+                             (get-service [this service-id]
+                               (or (get-in ~'@tk-app-context [:services-by-id service-id])
+                                   (throw (IllegalArgumentException.
+                                            (format
+                                              "Call to 'get-service' failed; service '%s' does not exist."
+                                              service-id)))))
+                             (get-services [this]
+                               (-> ~'@tk-app-context
+                                   :services-by-id
+                                   (dissoc :ConfigService :ShutdownService)
+                                   vals))
+                             (service-symbol [this] '~service-sym)
+
                              Lifecycle
                              ~@(si/fn-defs fns-map lifecycle-fn-names)
 

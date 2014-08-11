@@ -11,7 +11,7 @@
   a symbol representing the name of a service, and a symbol representing the
   name of the *protocol* for a service.  This is necessary because the `service`
   macro accepts both as optional leading arguments when defining a service."
-  {:service-symbol (schema/pred symbol?)})
+  {:service-sym (schema/pred symbol?)})
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -51,7 +51,7 @@
   [forms]
   (let [f (first forms)]
     (if (nil? (schema/check ServiceSymbol f))
-      (merge {:service-symbol f} (find-prot-and-deps-forms! (rest forms)))
+      (merge {:service-sym (get f :service-sym)} (find-prot-and-deps-forms! (rest forms)))
       (find-prot-and-deps-forms! forms))))
 
 ;(defn build-fns-map
@@ -71,11 +71,8 @@
 
 (defn build-service-map
   [service-prot-sym service-fn-names service]
-  (println "CALLING BUILD SERVICE MAP")
-  (println "s-p-s:" service-prot-sym "(" (type service-prot-sym) ")")
   (let [prot-ns (-> service-prot-sym :var meta :ns)]
     (reduce (fn [acc [fn-name fn-impl]]
-              (println "BSM ADDING FN:" fn-name "(" (type fn-name) ")")
               (assoc acc fn-name
                          (partial fn-impl  ;(ns-resolve prot-ns fn-name)
                                   service)))
@@ -253,7 +250,7 @@
   `IllegalArgumentException` otherwise."
   [protocol-sym required-fn-names fns-map]
   {:pre [(fns-map? fns-map)
-         (coll? required-fn-names)
+         ((some-fn nil? coll?) required-fn-names)
          (every? symbol? required-fn-names)
          (symbol? protocol-sym)]}
   (doseq [fn-name required-fn-names]
@@ -298,7 +295,7 @@
   if the fn forms do not match the protocol."
   [service-protocol-sym service-fn-names lifecycle-fn-names fns]
   {:pre [((some-fn nil? symbol?) service-protocol-sym)
-         (coll? service-fn-names)
+         ((some-fn nil? coll?) service-fn-names)
          (every? symbol? service-fn-names)
          (coll? lifecycle-fn-names)
          (every? symbol? lifecycle-fn-names)

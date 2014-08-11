@@ -72,7 +72,6 @@
           (every? #(satisfies? services/ServiceDefinition %) services)
           (map? config-data)]
    :post [(satisfies? app/TrapperkeeperApp %)]}
-  (println "BOOTING SERVICES WITH CONFIG")
   (config/initialize-logging! config-data)
   (internal/boot-services* services config-data))
 

@@ -93,7 +93,6 @@
    file."
   [cli-data]
   {:post [(map? %)]}
-  (println "parsing config data")
   (let [debug? (or (:debug cli-data) false)]
     (if-not (contains? cli-data :config)
       {:debug debug?}

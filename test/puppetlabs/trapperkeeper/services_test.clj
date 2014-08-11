@@ -260,80 +260,80 @@
       (let [svc (app/get-service app :HelloService)]
         (is (= (symbol "puppetlabs.trapperkeeper.services-test" "hello-service")
                (svcs/service-symbol svc))))))
-  #_(testing "service defined via `service` does not have a service symbol"
+  (testing "service defined via `service` does not have a service symbol"
     (let [empty-svc (service EmptyService [])]
       (with-app-with-empty-config app [empty-svc]
         (let [svc (app/get-service app :EmptyService)]
           (is (= :EmptyService (svcs/service-id svc)))
           (is (nil? (svcs/service-symbol svc))))))))
 
-;(deftest get-services-test
-;  (testing "get-services should return all services"
-;    (let [empty-service (service EmptyService [])]
-;      (with-app-with-empty-config app [empty-service hello-service]
-;        (let [empty (app/get-service app :EmptyService)
-;              hello (app/get-service app :HelloService)]
-;          (doseq [s [empty hello]]
-;            (let [all-services (svcs/get-services s)]
-;              (is (= 2 (count all-services)))
-;              (is (every? #(satisfies? svcs/Service %) all-services))
-;              (is (= #{:EmptyService :HelloService}
-;                     (set (map svcs/service-id all-services)))))))))))
-;
-;(deftest minimal-services-test
-;  (testing "minimal services can be defined without a protocol"
-;    (let [call-seq (atom [])
-;          service0 (service []
-;                            (init [this context]
-;                                  (swap! call-seq conj :init)
-;                                  (assoc context :foo :bar))
-;                            (start [this context]
-;                                   (swap! call-seq conj :start)
-;                                   (is (= context {:foo :bar}))
-;                                   context))]
-;      (bootstrap-services-with-empty-config [service0])
-;      (is (= [:init :start] @call-seq))))
-;
-;  (testing "minimal services can have dependencies"
-;    (let [service1 (service Service1
-;                            []
-;                            (service1-fn [this] "hi"))
-;          result   (atom nil)
-;          service0 (service [[:Service1 service1-fn]]
-;                            (init [this context]
-;                                  (reset! result (service1-fn))
-;                                  context))]
-;          (bootstrap-services-with-empty-config [service1 service0])
-;          (is (= "hi" @result)))))
-;
-;(defprotocol MultiArityService
-;  (foo [this x] [this x y]))
-;
-;(deftest test-multi-arity-protocol-fn
-;  (testing "should support protocols with multi-arity fns"
-;    (let [ma-service  (service MultiArityService
-;                               []
-;                               (foo [this x] x)
-;                               (foo [this x y] (+ x y)))
-;          service1    (service Service1
-;                               [[:MultiArityService foo]]
-;                               (service1-fn [this]
-;                                            [(foo 5) (foo 3 6)]))
-;          app         (bootstrap-services-with-empty-config [ma-service service1])
-;          mas         (app/get-service app :MultiArityService)
-;          s1          (app/get-service app :Service1)]
-;      (is (= 3 (foo mas 3)))
-;      (is (= 5 (foo mas 4 1)))
-;      (is (= [5 9] (service1-fn s1))))))
-;
-;(deftest service-fn-invalid-docstring
-;  (testing "defining a service function, mistakenly adding a docstring"
-;    (is (thrown-with-msg?
-;          Exception
-;          #"Incorrect macro usage"
-;          (macroexpand '(puppetlabs.trapperkeeper.services/service
-;                          puppetlabs.trapperkeeper.services-test/Service1
-;                          []
-;                          (service1-fn
-;                            "This is an example of an invalid docstring"
-;                            [this] nil)))))))
+(deftest get-services-test
+  (testing "get-services should return all services"
+    (let [empty-service (service EmptyService [])]
+      (with-app-with-empty-config app [empty-service hello-service]
+        (let [empty (app/get-service app :EmptyService)
+              hello (app/get-service app :HelloService)]
+          (doseq [s [empty hello]]
+            (let [all-services (svcs/get-services s)]
+              (is (= 2 (count all-services)))
+              (is (every? #(satisfies? svcs/Service %) all-services))
+              (is (= #{:EmptyService :HelloService}
+                     (set (map svcs/service-id all-services)))))))))))
+
+(deftest minimal-services-test
+  (testing "minimal services can be defined without a protocol"
+    (let [call-seq (atom [])
+          service0 (service []
+                            (init [this context]
+                                  (swap! call-seq conj :init)
+                                  (assoc context :foo :bar))
+                            (start [this context]
+                                   (swap! call-seq conj :start)
+                                   (is (= context {:foo :bar}))
+                                   context))]
+      (bootstrap-services-with-empty-config [service0])
+      (is (= [:init :start] @call-seq))))
+
+  (testing "minimal services can have dependencies"
+    (let [service1 (service Service1
+                            []
+                            (service1-fn [this] "hi"))
+          result   (atom nil)
+          service0 (service [[:Service1 service1-fn]]
+                            (init [this context]
+                                  (reset! result (service1-fn))
+                                  context))]
+          (bootstrap-services-with-empty-config [service1 service0])
+          (is (= "hi" @result)))))
+
+(defprotocol MultiArityService
+  (foo [this x] [this x y]))
+
+(deftest test-multi-arity-protocol-fn
+  (testing "should support protocols with multi-arity fns"
+    (let [ma-service  (service MultiArityService
+                               []
+                               (foo [this x] x)
+                               (foo [this x y] (+ x y)))
+          service1    (service Service1
+                               [[:MultiArityService foo]]
+                               (service1-fn [this]
+                                            [(foo 5) (foo 3 6)]))
+          app         (bootstrap-services-with-empty-config [ma-service service1])
+          mas         (app/get-service app :MultiArityService)
+          s1          (app/get-service app :Service1)]
+      (is (= 3 (foo mas 3)))
+      (is (= 5 (foo mas 4 1)))
+      (is (= [5 9] (service1-fn s1))))))
+
+(deftest service-fn-invalid-docstring
+  (testing "defining a service function, mistakenly adding a docstring"
+    (is (thrown-with-msg?
+          Exception
+          #"Incorrect macro usage"
+          (macroexpand '(puppetlabs.trapperkeeper.services/service
+                          puppetlabs.trapperkeeper.services-test/Service1
+                          []
+                          (service1-fn
+                            "This is an example of an invalid docstring"
+                            [this] nil)))))))

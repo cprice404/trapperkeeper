@@ -22,7 +22,6 @@
 
 (defn bootstrap-services-with-cli-data
   [services cli-data]
-  (println "bs services with cli data")
   (internal/throw-app-error-if-exists!
     (tk/boot-services-with-config services
                                   (config/parse-config-data cli-data))))
@@ -52,7 +51,6 @@
 
 (defn bootstrap-services-with-empty-config
   [services]
-  (println "bs services with empty config")
   (bootstrap-services-with-cli-data services {:config empty-config}))
 
 (defmacro with-app-with-empty-config

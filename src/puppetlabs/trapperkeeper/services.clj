@@ -131,7 +131,7 @@
 (defmacro service
   [& forms]
   (let [{:keys [service-sym service-protocol-sym service-id service-fn-names
-                dependencies fns-map]}
+                dependencies fns-map] :as parsey}
         (si/parse-service-forms!
           lifecycle-fn-names
           forms)
@@ -140,9 +140,6 @@
         output-schema (si/build-output-schema (keys service-fn-names))
         ;service-ref   (atom nil)
         ]
-    (println "FNS-MAP:" fns-map)
-    (println "lifecycle-fn-names:" lifecycle-fn-names)
-    (println "OUTPUT SCHEMA:" output-schema)
     `(let [service-ref# (atom nil)]
       (reify ServiceDefinition
          (service-def-id [this] ~service-id)
@@ -160,9 +157,6 @@
                              (service-id [this#] ~service-id)
                              (service-context [this#] (get ~'@tk-app-context ~service-id {}))
                              (get-service [this# service-id#]
-                               (println "ATTEMPTING TO GET SERVICE:" service-id#)
-                               (println "   this:" this#)
-                               (println "   context:" ~'@tk-app-context)
                                (or (get-in ~'@tk-app-context [:services-by-id service-id#])
                                    (throw (IllegalArgumentException.
                                             (format
@@ -191,5 +185,5 @@
   [svc-name & forms]
   (let [service-sym      (symbol (name (ns-name *ns*)) (name svc-name))
         [svc-name forms] (name-with-attributes svc-name forms)]
-    `(def ~svc-name (service {:service-symbol ~service-sym} ~@forms))))
+    `(def ~svc-name (service {:service-sym ~service-sym} ~@forms))))
 

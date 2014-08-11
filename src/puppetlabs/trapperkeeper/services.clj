@@ -157,20 +157,23 @@
                 ;~dependencies
                 (let [svc# (reify
                              Service
-                             (service-id [this] ~service-id)
-                             (service-context [this] (get ~'@tk-app-context ~service-id {}))
-                             (get-service [this service-id]
-                               (or (get-in ~'@tk-app-context [:services-by-id service-id])
+                             (service-id [this#] ~service-id)
+                             (service-context [this#] (get ~'@tk-app-context ~service-id {}))
+                             (get-service [this# service-id#]
+                               (println "ATTEMPTING TO GET SERVICE:" service-id#)
+                               (println "   this:" this#)
+                               (println "   context:" ~'@tk-app-context)
+                               (or (get-in ~'@tk-app-context [:services-by-id service-id#])
                                    (throw (IllegalArgumentException.
                                             (format
                                               "Call to 'get-service' failed; service '%s' does not exist."
-                                              service-id)))))
-                             (get-services [this]
+                                              service-id#)))))
+                             (get-services [this#]
                                (-> ~'@tk-app-context
                                    :services-by-id
                                    (dissoc :ConfigService :ShutdownService)
                                    vals))
-                             (service-symbol [this] '~service-sym)
+                             (service-symbol [this#] '~service-sym)
 
                              Lifecycle
                              ~@(si/fn-defs fns-map lifecycle-fn-names)

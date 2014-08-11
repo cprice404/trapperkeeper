@@ -430,6 +430,7 @@
                                              (s/service-ref sd)])
                                    services))
          ordered-services (map (fn [[service-id _]] [service-id (services-by-id service-id)]) graph)]
+    (println "ADDING SERVICE BY ID")
     (swap! app-context assoc :services-by-id services-by-id)
     (swap! app-context assoc :ordered-services ordered-services)
     (doseq [svc-id (keys services-by-id)] (swap! app-context assoc svc-id {}))

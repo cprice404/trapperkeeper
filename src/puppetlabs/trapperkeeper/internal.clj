@@ -13,6 +13,7 @@
   "Predicate that tests whether or not the argument is a valid trapperkeeper
   service graph."
   [service-graph]
+  (println "CHECKING SERVICE GRAPH:" service-graph)
   (and
     (map? service-graph)
     (every? keyword? (keys service-graph))
@@ -400,26 +401,33 @@
           (every? #(satisfies? s/ServiceDefinition %) services)
           (map? config-data)]
    :post [(satisfies? a/TrapperkeeperApp %)]}
+  (println "BUILD-APP*")
   (let [;; this is the application context for this app instance.  its keys
         ;; will be the service ids, and values will be maps that represent the
         ;; context for each individual service
          app-context (atom {})
+         _ (println "FINDING SERVICES")
          services (conj services
                         (config-service config-data)
                         (initialize-shutdown-service! app-context
                                                       shutdown-reason-promise))
+         _ (println "MERGING SERVICE MAPS")
          service-map (apply merge (map s/service-map services))
+         _ (println "COMPILING GRAPH")
          compiled-graph (compile-graph service-map)
         ;; this gives us an ordered graph that we can use to call lifecycle
         ;; functions in the correct order later
          graph (g/->graph service-map)
         ;; when we instantiate the graph, we pass in the context atom.
+        _ (println "instantiating graph")
          graph-instance (instantiate compiled-graph {:context app-context})
         ;; here we build up a map of all of the services by calling the
         ;; constructor for each one
+         _ (println "ABOUT TO BUILD SERVICES-BY-ID")
          services-by-id (into {} (map
                                    (fn [sd] [(s/service-def-id sd)
-                                             ((s/service-constructor sd) graph-instance app-context)])
+                                             #_((s/service-constructor sd) graph-instance app-context)
+                                             (s/service-ref sd)])
                                    services))
          ordered-services (map (fn [[service-id _]] [service-id (services-by-id service-id)]) graph)]
     (swap! app-context assoc :services-by-id services-by-id)

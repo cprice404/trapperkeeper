@@ -1,4 +1,5 @@
 (ns puppetlabs.trapperkeeper.services-internal
+  (:import (clojure.lang IFn))
   (:require [clojure.walk :refer [postwalk]]
             [clojure.set :refer [difference union intersection]]
             [plumbing.core :refer [fnk]]
@@ -11,6 +12,88 @@
   name of the *protocol* for a service.  This is necessary because the `service`
   macro accepts both as optional leading arguments when defining a service."
   {:service-symbol (schema/pred symbol?)})
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+
+
+(defn validate-fn-forms!
+  [fns]
+  (if (every? seq? fns)
+    {:fns fns}
+    (throw (IllegalArgumentException.
+             (format
+               "Invalid service definition; expected function definitions following dependency list, invalid value: '\"hi\"'"
+               (pr-str (first (filter #(not (seq? %)) fns))))))))
+
+(defn validate-deps-form!
+  [forms]
+  (let [f (first forms)]
+    (if (vector? f)
+      (merge {:dependencies f} (validate-fn-forms! (rest forms)))
+      (throw (IllegalArgumentException.
+               (format
+                 "Invalid service definition; expected dependency list following protocol, found: '%s'"
+                 (pr-str f)))))))
+
+(defn find-prot-and-deps-forms!
+  [forms]
+  (let [f (first forms)]
+    (cond
+      (symbol? f) (merge {:service-protocol-sym f} (validate-deps-form! (rest forms)))
+      (vector? f) (validate-deps-form! forms)
+      :else (throw (IllegalArgumentException.
+                     (format
+                       "Invalid service definition; first form must be protocol or dependency list; found '%s'"
+                       (pr-str f)))))))
+
+(defn parse-service-forms!*
+  [forms]
+  (let [f (first forms)]
+    (if (nil? (schema/check ServiceSymbol f))
+      (merge {:service-symbol f} (find-prot-and-deps-forms! (rest forms)))
+      (find-prot-and-deps-forms! forms))))
+
+;(defn build-fns-map
+;  [fns]
+;  (reduce (fn [acc fn-sym]
+;            (assoc acc (keyword fn-sym) fn-sym))
+;          {}
+;          (map first fns)))
+
+;(defn build-service-map
+;  [fns-map svc]
+;  (reduce (fn [acc [fn-name fn-impl]]
+;            (assoc acc fn-name
+;                       (partial fn-impl svc)))
+;          {}
+;          fns-map))
+
+(defn build-service-map
+  [service-prot-sym service-fn-names service]
+  (println "CALLING BUILD SERVICE MAP")
+  (println "s-p-s:" service-prot-sym "(" (type service-prot-sym) ")")
+  (let [prot-ns (-> service-prot-sym :var meta :ns)]
+    (reduce (fn [acc [fn-name fn-impl]]
+              (println "BSM ADDING FN:" fn-name "(" (type fn-name) ")")
+              (assoc acc fn-name
+                         (partial fn-impl  ;(ns-resolve prot-ns fn-name)
+                                  service)))
+            {}
+            service-fn-names)))
+
+;(defn build-output-schema
+;  [fns-map]
+;  (reduce (fn [acc fn-name] (assoc acc (keyword fn-name) IFn))
+;          {}
+;          (keys fns-map)))
+
+(defn build-output-schema
+  [service-fn-names]
+  (reduce (fn [acc fn-name] (assoc acc fn-name IFn))
+          {}
+          service-fn-names))
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (defn protocol?
   "A predicate to determine whether or not an object is a protocol definition"
@@ -37,77 +120,77 @@
        (every? keyword? (keys m))
        (every? seq? (vals m))
        (every? fn-sig? (apply concat (vals m)))))
-
-(defn validate-fn-forms!
-  "Validate that all of the fn forms in the service body appear to be
-  valid fn definitions.  Throws `IllegalArgumentException` otherwise."
-  [protocol-sym deps fns]
-  {:pre [((some-fn nil? symbol?) protocol-sym)
-         (vector? deps)
-         (seq? fns)]
-   :post [(vector? %)]}
-  (if (every? seq? fns)
-    [protocol-sym deps fns]
-    (throw (IllegalArgumentException.
-             (format
-               "Invalid service definition; expected function definitions following dependency list, invalid value: '\"hi\"'"
-               (pr-str (first (filter #(not (seq? %)) fns))))))))
-
-(defn validate-deps-form!
-  "Validate that the service body has a valid dependency specification.
-  Throws `IllegalArgumentException` otherwise."
-  [protocol-sym forms]
-  {:pre [((some-fn nil? symbol?) protocol-sym)
-         (seq? forms)]
-   :post [(vector? %)]}
-  (let [f (first forms)]
-    (if (vector? f)
-      (validate-fn-forms! protocol-sym f (rest forms))
-      (throw (IllegalArgumentException.
-               (format
-                 "Invalid service definition; expected dependency list following protocol, found: '%s'"
-                 (pr-str f)))))))
-
-(defn find-prot-and-deps-forms!
-  "Given the forms passed to the service macro, find the service protocol
-  (if one is provided), the dependency list, and the function definitions.
-  Throws `IllegalArgumentException` if the forms do not represent a valid service.
-  Returns a vector containing the protocol, dependency list, and fn forms."
-  [forms]
-  {:pre [(seq? forms)]
-   :post [(vector? %)
-          (= 3 (count %))
-          ((some-fn nil? symbol?) (first %))
-          (vector? (second %))
-          (seq? (nth % 2))]}
-  (let [f (first forms)]
-    (cond
-      (symbol? f) (validate-deps-form! f (rest forms))
-      (vector? f) (validate-deps-form! nil forms)
-      :else (throw (IllegalArgumentException.
-                     (format
-                       "Invalid service definition; first form must be protocol or dependency list; found '%s'"
-                       (pr-str f)))))))
-
-(defn parse-service-forms!*
-  "Given the forms passed to the service macro, find the service symbol (if one
-  is provided), the service protocol (if one is provided), the dependency list,
-  and the function definitions.  Throws `IllegalArgumentException` if the forms
-  do not represent a valid service.  Returns a vector containing the symbol,
-  protocol, dependency list, and fn forms."
-  [forms]
-  {:pre [(seq? forms)]
-   :post [(seq? %)
-          (= 4 (count %))
-          ((some-fn nil? symbol?) (first %))
-          ((some-fn nil? symbol?) (second %))
-          (vector? (nth % 2))
-          (seq? (nth % 3))]}
-  (let [f (first forms)]
-    (if (nil? (schema/check ServiceSymbol f))
-      (cons (:service-symbol f) (find-prot-and-deps-forms! (rest forms)))
-      (cons nil (find-prot-and-deps-forms! forms)))))
-
+;
+;(defn validate-fn-forms!
+;  "Validate that all of the fn forms in the service body appear to be
+;  valid fn definitions.  Throws `IllegalArgumentException` otherwise."
+;  [protocol-sym deps fns]
+;  {:pre [((some-fn nil? symbol?) protocol-sym)
+;         (vector? deps)
+;         (seq? fns)]
+;   :post [(vector? %)]}
+;  (if (every? seq? fns)
+;    [protocol-sym deps fns]
+;    (throw (IllegalArgumentException.
+;             (format
+;               "Invalid service definition; expected function definitions following dependency list, invalid value: '\"hi\"'"
+;               (pr-str (first (filter #(not (seq? %)) fns))))))))
+;
+;(defn validate-deps-form!
+;  "Validate that the service body has a valid dependency specification.
+;  Throws `IllegalArgumentException` otherwise."
+;  [protocol-sym forms]
+;  {:pre [((some-fn nil? symbol?) protocol-sym)
+;         (seq? forms)]
+;   :post [(vector? %)]}
+;  (let [f (first forms)]
+;    (if (vector? f)
+;      (validate-fn-forms! protocol-sym f (rest forms))
+;      (throw (IllegalArgumentException.
+;               (format
+;                 "Invalid service definition; expected dependency list following protocol, found: '%s'"
+;                 (pr-str f)))))))
+;
+;(defn find-prot-and-deps-forms!
+;  "Given the forms passed to the service macro, find the service protocol
+;  (if one is provided), the dependency list, and the function definitions.
+;  Throws `IllegalArgumentException` if the forms do not represent a valid service.
+;  Returns a vector containing the protocol, dependency list, and fn forms."
+;  [forms]
+;  {:pre [(seq? forms)]
+;   :post [(vector? %)
+;          (= 3 (count %))
+;          ((some-fn nil? symbol?) (first %))
+;          (vector? (second %))
+;          (seq? (nth % 2))]}
+;  (let [f (first forms)]
+;    (cond
+;      (symbol? f) (validate-deps-form! f (rest forms))
+;      (vector? f) (validate-deps-form! nil forms)
+;      :else (throw (IllegalArgumentException.
+;                     (format
+;                       "Invalid service definition; first form must be protocol or dependency list; found '%s'"
+;                       (pr-str f)))))))
+;
+;(defn parse-service-forms!*
+;  "Given the forms passed to the service macro, find the service symbol (if one
+;  is provided), the service protocol (if one is provided), the dependency list,
+;  and the function definitions.  Throws `IllegalArgumentException` if the forms
+;  do not represent a valid service.  Returns a vector containing the symbol,
+;  protocol, dependency list, and fn forms."
+;  [forms]
+;  {:pre [(seq? forms)]
+;   :post [(seq? %)
+;          (= 4 (count %))
+;          ((some-fn nil? symbol?) (first %))
+;          ((some-fn nil? symbol?) (second %))
+;          (vector? (nth % 2))
+;          (seq? (nth % 3))]}
+;  (let [f (first forms)]
+;    (if (nil? (schema/check ServiceSymbol f))
+;      (cons (:service-symbol f) (find-prot-and-deps-forms! (rest forms)))
+;      (cons nil (find-prot-and-deps-forms! forms)))))
+;
 (defn validate-protocol-sym!
   "Given a var, validate that the var exists and that its value is a protocol.
   Throws `IllegalArgumentException` if the var does not exist or if its value
@@ -275,15 +358,30 @@
   an empty list if the protocol symbol is nil."
   [service-protocol-sym]
   {:pre [((some-fn nil? symbol?) service-protocol-sym)]
-   :post [(coll? %)
-          (every? symbol? %)]}
+   ;:post [(coll? %)
+   ;       (every? symbol? %)]
+   }
   (let [service-protocol  (if service-protocol-sym
                             (validate-protocol-sym!
                               service-protocol-sym
                               (resolve service-protocol-sym)))]
     (if service-protocol
-      (map :name (vals (:sigs service-protocol)))
-      [])))
+      (reduce (fn [acc fn-name]
+                (assoc acc (keyword fn-name) fn-name))
+              {}
+              (mapv :name (vals (:sigs service-protocol))))
+      {})))
+
+;(defn get-service-prot-fns
+;  [service-protocol-sym]
+;  (let [service-protocol  (if service-protocol-sym
+;                            (validate-protocol-sym!
+;                              service-protocol-sym
+;                              (resolve service-protocol-sym)))]
+;    (if service-protocol
+;      (map :name (vals (:sigs service-protocol)))
+;      [])))
+
 
 (defn parse-service-forms!
   "Parse the forms provided to the `service` macro.  Return a map
@@ -300,14 +398,14 @@
    :post [(map? %)
           (= #{:service-sym :service-protocol-sym :service-id :service-fn-names
                :dependencies :fns-map} (ks/keyset %))]}
-  (let [[service-sym service-protocol-sym dependencies fns]
+  (let [{:keys [service-sym service-protocol-sym dependencies fns]}
                           (parse-service-forms!* forms)
         service-id        (get-service-id service-protocol-sym)
         service-fn-names  (get-service-fn-names service-protocol-sym)
 
         fns-map           (build-fns-map!
                             service-protocol-sym
-                            service-fn-names
+                            (vals service-fn-names)
                             lifecycle-fn-names
                             fns)]
 
@@ -317,170 +415,181 @@
      :service-fn-names      service-fn-names
      :dependencies          dependencies
      :fns-map               fns-map}))
+;
+;(defn postwalk-with-pred
+;  "Convenience wrapper for clojure.walk/postwalk.  Given two functions `matches?`
+;  and `replace` walks form `form`.  For each node, if `matches?` returns true,
+;  then replaces the node with the result of `replace`."
+;  [matches? replace form]
+;  {:pre [(ifn? matches?)
+;         (ifn? replace)]}
+;  (postwalk (fn [x]
+;              (if-not (matches? x)
+;                x
+;                (replace x)))
+;    form))
+;
+;(defn is-protocol-fn-call?
+;  "Given a set of function names, a symbol representing the 'this' object of
+;  a protocol function signature, and a form: return true if the form represents
+;  a call to one of the protocol functions.  (This is for use in macros that are
+;  transforming protocol function definition code.)"
+;  [fns this form]
+;  {:pre [(set? fns)
+;         (every? symbol? fns)
+;         (symbol? this)]}
+;  (and (seq? form)
+;       (> (count form) 1)
+;       (= this (second form))
+;       (contains? fns (first form))))
+;
+;(defn replace-fn-calls
+;  "Given a set of function names, a symbol representing the 'this' object of
+;  a protocol function signature, and a form: find all of the calls to the protocol
+;  functions anywhere in the form and replace them with calls to the prismatic
+;  graph functions.  (This is for use in macros that are transforming protocol
+;  function definition code.)
+;
+;  Returns a tuple whose first element is a set containing the names of all of
+;  the functions that were found in the form, and whose second element is
+;  the modified form."
+;  [fns this form]
+;  {:pre [(set? fns)
+;         (every? symbol? fns)
+;         (symbol? this)]
+;   :post [(vector? %)
+;          (set? (first %))
+;          (every? symbol? (first %))]}
+;  ;; in practice, all our 'replace' function really needs to do is to
+;  ;; remove the 'this' argument.  The function signatures in the graph are
+;  ;; identical to the ones in the protocol, except without the 'this' arg.
+;  (let [replace     (fn [form] (cons (first form) (nthrest form 2)))
+;        ;; we need an atom to accumulate the matches that we find, because
+;        ;; clojure.walk doesn't provide any signatures that support an accumulator.
+;        ;; could eventually look into replacing this with an implementation based
+;        ;; off of a zipper, but that looked like a lot of work for now.
+;        acc         (atom #{})
+;        accumulate  (fn [form] (swap! acc conj (first form)))
+;        result      (postwalk-with-pred
+;                      (partial is-protocol-fn-call? fns this)
+;                      (fn [form] (accumulate form) (replace form))
+;                      form)]
+;    [@acc result]))
+;
+;(defn protocol-fn->graph-fn
+;  "Given the list of fn names that make up the main trapperkeeper Service protocol,
+;  a list of fn names provided by a service, and a list of fn forms for a
+;  (potentially multi-arity) fn from the service macro, create a fn form that is
+;  suitable for use in a prismatic graph.  Returns a map containing the following
+;  keys:
+;
+;  :deps - a list of fns from the service that this fn depends on
+;  :f    - the modified fn form, suitable for use in the graph"
+;  [tk-svc-fn-names fn-names sigs]
+;  {:pre [(every? symbol? fn-names)
+;         (seq? sigs)
+;         (every? seq? sigs)]
+;   :post [(map? %)
+;          (= #{:deps :f} (ks/keyset %))
+;          (coll? (:deps %))
+;          (seq? (:f %))
+;          (= 'fn (first (:f %)))]}
+;  (let [bodies (for [sig sigs]
+;                  ;; first we destructure the function form into its various parts
+;                  (let [[_ [this & fn-args] & fn-body] sig
+;                        ;; now we need to transform all calls to the fns from the
+;                        ;; Service protocol from protocol form to prismatic form.
+;                        ;; we don't need to track these as dependencies because it
+;                        ;; will be provided by the app.
+;                        [_ fn-body] (replace-fn-calls (set tk-svc-fn-names)
+;                                                      this fn-body)
+;                        ;; transform all the functions from the service protocol, and keep
+;                        ;; a list of the dependencies so that prismatic can inject them
+;                        [deps fn-body] (replace-fn-calls (set fn-names) this fn-body)]
+;                    {:deps deps :sig (cons (vec fn-args) fn-body)}))]
+;    {:deps (->> bodies (map :deps) (apply concat) (distinct))
+;     :f    (cons 'fn (map :sig bodies))}))
+;
+;(defn add-prismatic-service-fnk
+;  "Given the list of fn names that make up the main trapperkeeper Service protocol,
+;  the name of a fn from a service protocol, convert the raw fn form provided
+;  to the macro into a fn form suitable for use in a prismatic graph, wrap it in a
+;  prismatic fnk, and add it to the fnk accumulator map.  Returns the updated
+;  accumulator map."
+;  [tk-svc-fn-names fn-names fns-map fnk-acc fn-name]
+;  {:pre [(every? symbol? fn-names)
+;         (fns-map? fns-map)
+;         (map? fnk-acc)
+;         (every? keyword? (keys fnk-acc))
+;         (every? (fn [v] (= 'plumbing.core/fnk (first v))) (vals fnk-acc))
+;         (keyword? fn-name)]
+;   :post [(map? %)
+;          (every? keyword? (keys %))
+;          (every? seq? (vals %))
+;          (every? (fn [v] (= 'plumbing.core/fnk (first v))) (vals %))]}
+;  (let [{:keys [deps f]} (protocol-fn->graph-fn
+;                           tk-svc-fn-names
+;                           fn-names
+;                           (fns-map fn-name))]
+;    (assoc fnk-acc fn-name
+;      (list 'plumbing.core/fnk (vec deps) f))))
+;
+;(defn prismatic-service-map
+;  "Given the list of fn names that make up the main trapperkeeper Service protocol,
+;  a list of fn names and a map of the original fn forms provided to the
+;  service macro, return a map of fnks suitable for use in a prismatic graph."
+;  [tk-svc-fn-names fn-names fns-map]
+;  {:pre [(every? symbol? fn-names)
+;         (fns-map? fns-map)]
+;   :post [(map? %)
+;          (every? keyword? (keys %))
+;          (every? seq? (vals %))
+;          (every? (fn [v] (= 'plumbing.core/fnk (first v))) (vals %))
+;          (= (set (map keyword fn-names))
+;             (ks/keyset fns-map))]}
+;  (reduce
+;    (partial add-prismatic-service-fnk tk-svc-fn-names fn-names fns-map)
+;    {}
+;    (map keyword fn-names)))
+;
+;(defn protocol-fn
+;  "Given a form containing the definition of a service function, return a fn form
+;  that simply proxies to the corresponding function in the prismatic graph (`service-fns`)."
+;  [sig]
+;  {:pre [(fn-sig? sig)]}
+;  (let [[fn-name fn-args & _] sig]
+;    (list
+;      fn-name
+;      fn-args
+;      (cons
+;        (list 'service-fns (keyword fn-name))
+;        (rest fn-args)))))
+;
+;(defn protocol-fns
+;  "Given a list of fn names and a map containing the original fn forms provided to
+;  the service macro, return a list of modified fn forms that simply proxy to the
+;  functions in the prismatic graph."
+;  [fn-names fns-map]
+;  {:pre [(every? symbol? fn-names)
+;         (fns-map? fns-map)]
+;   :post [(seq? %)
+;          (every? seq? %)]}
+;
+;  (reduce
+;    (fn [acc fn-name]
+;      (let [sigs (fns-map (keyword fn-name))]
+;        (concat acc (for [sig sigs] (protocol-fn sig)))))
+;    '()
+;    fn-names))
 
-(defn postwalk-with-pred
-  "Convenience wrapper for clojure.walk/postwalk.  Given two functions `matches?`
-  and `replace` walks form `form`.  For each node, if `matches?` returns true,
-  then replaces the node with the result of `replace`."
-  [matches? replace form]
-  {:pre [(ifn? matches?)
-         (ifn? replace)]}
-  (postwalk (fn [x]
-              (if-not (matches? x)
-                x
-                (replace x)))
-    form))
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(defn is-protocol-fn-call?
-  "Given a set of function names, a symbol representing the 'this' object of
-  a protocol function signature, and a form: return true if the form represents
-  a call to one of the protocol functions.  (This is for use in macros that are
-  transforming protocol function definition code.)"
-  [fns this form]
-  {:pre [(set? fns)
-         (every? symbol? fns)
-         (symbol? this)]}
-  (and (seq? form)
-       (> (count form) 1)
-       (= this (second form))
-       (contains? fns (first form))))
-
-(defn replace-fn-calls
-  "Given a set of function names, a symbol representing the 'this' object of
-  a protocol function signature, and a form: find all of the calls to the protocol
-  functions anywhere in the form and replace them with calls to the prismatic
-  graph functions.  (This is for use in macros that are transforming protocol
-  function definition code.)
-
-  Returns a tuple whose first element is a set containing the names of all of
-  the functions that were found in the form, and whose second element is
-  the modified form."
-  [fns this form]
-  {:pre [(set? fns)
-         (every? symbol? fns)
-         (symbol? this)]
-   :post [(vector? %)
-          (set? (first %))
-          (every? symbol? (first %))]}
-  ;; in practice, all our 'replace' function really needs to do is to
-  ;; remove the 'this' argument.  The function signatures in the graph are
-  ;; identical to the ones in the protocol, except without the 'this' arg.
-  (let [replace     (fn [form] (cons (first form) (nthrest form 2)))
-        ;; we need an atom to accumulate the matches that we find, because
-        ;; clojure.walk doesn't provide any signatures that support an accumulator.
-        ;; could eventually look into replacing this with an implementation based
-        ;; off of a zipper, but that looked like a lot of work for now.
-        acc         (atom #{})
-        accumulate  (fn [form] (swap! acc conj (first form)))
-        result      (postwalk-with-pred
-                      (partial is-protocol-fn-call? fns this)
-                      (fn [form] (accumulate form) (replace form))
-                      form)]
-    [@acc result]))
-
-(defn protocol-fn->graph-fn
-  "Given the list of fn names that make up the main trapperkeeper Service protocol,
-  a list of fn names provided by a service, and a list of fn forms for a
-  (potentially multi-arity) fn from the service macro, create a fn form that is
-  suitable for use in a prismatic graph.  Returns a map containing the following
-  keys:
-
-  :deps - a list of fns from the service that this fn depends on
-  :f    - the modified fn form, suitable for use in the graph"
-  [tk-svc-fn-names fn-names sigs]
-  {:pre [(every? symbol? fn-names)
-         (seq? sigs)
-         (every? seq? sigs)]
-   :post [(map? %)
-          (= #{:deps :f} (ks/keyset %))
-          (coll? (:deps %))
-          (seq? (:f %))
-          (= 'fn (first (:f %)))]}
-  (let [bodies (for [sig sigs]
-                  ;; first we destructure the function form into its various parts
-                  (let [[_ [this & fn-args] & fn-body] sig
-                        ;; now we need to transform all calls to the fns from the
-                        ;; Service protocol from protocol form to prismatic form.
-                        ;; we don't need to track these as dependencies because it
-                        ;; will be provided by the app.
-                        [_ fn-body] (replace-fn-calls (set tk-svc-fn-names)
-                                                      this fn-body)
-                        ;; transform all the functions from the service protocol, and keep
-                        ;; a list of the dependencies so that prismatic can inject them
-                        [deps fn-body] (replace-fn-calls (set fn-names) this fn-body)]
-                    {:deps deps :sig (cons (vec fn-args) fn-body)}))]
-    {:deps (->> bodies (map :deps) (apply concat) (distinct))
-     :f    (cons 'fn (map :sig bodies))}))
-
-(defn add-prismatic-service-fnk
-  "Given the list of fn names that make up the main trapperkeeper Service protocol,
-  the name of a fn from a service protocol, convert the raw fn form provided
-  to the macro into a fn form suitable for use in a prismatic graph, wrap it in a
-  prismatic fnk, and add it to the fnk accumulator map.  Returns the updated
-  accumulator map."
-  [tk-svc-fn-names fn-names fns-map fnk-acc fn-name]
-  {:pre [(every? symbol? fn-names)
-         (fns-map? fns-map)
-         (map? fnk-acc)
-         (every? keyword? (keys fnk-acc))
-         (every? (fn [v] (= 'plumbing.core/fnk (first v))) (vals fnk-acc))
-         (keyword? fn-name)]
-   :post [(map? %)
-          (every? keyword? (keys %))
-          (every? seq? (vals %))
-          (every? (fn [v] (= 'plumbing.core/fnk (first v))) (vals %))]}
-  (let [{:keys [deps f]} (protocol-fn->graph-fn
-                           tk-svc-fn-names
-                           fn-names
-                           (fns-map fn-name))]
-    (assoc fnk-acc fn-name
-      (list 'plumbing.core/fnk (vec deps) f))))
-
-(defn prismatic-service-map
-  "Given the list of fn names that make up the main trapperkeeper Service protocol,
-  a list of fn names and a map of the original fn forms provided to the
-  service macro, return a map of fnks suitable for use in a prismatic graph."
-  [tk-svc-fn-names fn-names fns-map]
-  {:pre [(every? symbol? fn-names)
-         (fns-map? fns-map)]
-   :post [(map? %)
-          (every? keyword? (keys %))
-          (every? seq? (vals %))
-          (every? (fn [v] (= 'plumbing.core/fnk (first v))) (vals %))
-          (= (set (map keyword fn-names))
-             (ks/keyset fns-map))]}
-  (reduce
-    (partial add-prismatic-service-fnk tk-svc-fn-names fn-names fns-map)
-    {}
-    (map keyword fn-names)))
-
-(defn protocol-fn
-  "Given a form containing the definition of a service function, return a fn form
-  that simply proxies to the corresponding function in the prismatic graph (`service-fns`)."
-  [sig]
-  {:pre [(fn-sig? sig)]}
-  (let [[fn-name fn-args & _] sig]
-    (list
-      fn-name
-      fn-args
-      (cons
-        (list 'service-fns (keyword fn-name))
-        (rest fn-args)))))
-
-(defn protocol-fns
-  "Given a list of fn names and a map containing the original fn forms provided to
-  the service macro, return a list of modified fn forms that simply proxy to the
-  functions in the prismatic graph."
-  [fn-names fns-map]
-  {:pre [(every? symbol? fn-names)
-         (fns-map? fns-map)]
-   :post [(seq? %)
-          (every? seq? %)]}
-
+(defn fn-defs
+  [fns-map fn-names]
   (reduce
     (fn [acc fn-name]
       (let [sigs (fns-map (keyword fn-name))]
-        (concat acc (for [sig sigs] (protocol-fn sig)))))
+        (concat acc sigs)))
     '()
     fn-names))
 

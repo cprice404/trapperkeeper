@@ -34,97 +34,137 @@
   is not usable until it is instantiated (via `boot!`)."
   (service-def-id [this] "An identifier for the service")
   (service-map [this] "The map of service functions for the graph")
-  (service-constructor [this] "A constructor function to instantiate the service"))
+  #_(service-constructor [this] "A constructor function to instantiate the service")
+  (service-ref [this] "TODO")
+  )
 
 (def lifecycle-fn-names (map :name (vals (:sigs Lifecycle))))
 (def tk-service-fn-names (map :name (vals (:sigs Service))))
 
+;(defmacro service
+;  "Create a Trapperkeeper ServiceDefinition.
+;
+;  First argument (optional) is a protocol indicating the list of functions that
+;  this service exposes for use by other Trapperkeeper services.
+;
+;  Second argument is the dependency list; this should be a vector of vectors.
+;  Each inner vector should begin with a keyword representation of the name of the
+;  service protocol that the service depends upon.  All remaining items in the inner
+;  vectors should be symbols representing functions that should be imported from
+;  the service.
+;
+;  The remaining arguments should be function definitions for this service, specified
+;  in the format that is used by a normal clojure `reify`.  The legal list of functions
+;  that may be specified includes whatever functions are defined by this service's
+;  protocol (if it has one), plus the list of functions in the `Lifecycle` protocol."
+;  [& forms]
+;  (let [{:keys [service-sym service-protocol-sym service-id service-fn-names
+;                dependencies fns-map]}
+;                      (si/parse-service-forms!
+;                        lifecycle-fn-names
+;                        forms)
+;        ;;; we add 'context' to the dependencies list of all of the services.  we'll
+;        ;;; use this to inject the service context so it's accessible from service functions
+;        dependencies  (conj dependencies 'context)
+;        output-schema (into {}
+;                            (map (fn [f] [(keyword f) schema/Any])
+;                                 (concat lifecycle-fn-names service-fn-names)))]
+;    `(reify ServiceDefinition
+;       (service-def-id [this] ~service-id)
+;
+;       ;; service map for prismatic graph
+;       (service-map [this]
+;         {~service-id
+;           ;; the main service fnk for the app graph.  we add metadata to the fnk
+;           ;; arguments list to specify an explicit output schema for the fnk
+;           (fnk f :- ~output-schema
+;              ~dependencies
+;              ;; create a function that exposes the service context to the service.
+;              (let [~'service-id      (fn [] ~service-id)
+;                    ~'service-context (fn [] (get ~'@context ~service-id))
+;                    ~'get-service     (fn [svc-id#] (or (get-in ~'@context [:services-by-id svc-id#])
+;                                                        (throw (IllegalArgumentException.
+;                                                                 (format
+;                                                                   "Call to 'get-service' failed; service '%s' does not exist."
+;                                                                   svc-id#)))))
+;                    ;; here we create an inner graph for this service.  we need
+;                    ;; this in order to handle deps within a single service.
+;                    service-map#      ~(si/prismatic-service-map
+;                                         tk-service-fn-names
+;                                         (concat lifecycle-fn-names service-fn-names)
+;                                         fns-map)
+;                    s-graph-inst#     (if (empty? service-map#)
+;                                        {}
+;                                        ((g/eager-compile service-map#) {}))]
+;                s-graph-inst#))})
+;
+;       ;; service constructor function
+;       (service-constructor [this]
+;         ;; the constructor requires the main app graph and context atom as input
+;         (fn [graph# context#]
+;           (let [~'service-fns (graph# ~service-id)]
+;             ;; now we instantiate the service and define all of its protocol functions
+;             (reify
+;               Service
+;               (service-id [this] ~service-id)
+;               (service-context [this] (get @context# ~service-id {}))
+;               (get-service [this service-id]
+;                 (or (get-in @context# [:services-by-id service-id])
+;                     (throw (IllegalArgumentException.
+;                              (format
+;                                "Call to 'get-service' failed; service '%s' does not exist."
+;                                service-id)))))
+;               (get-services [this]
+;                 (-> @context#
+;                     :services-by-id
+;                     (dissoc :ConfigService :ShutdownService)
+;                     vals))
+;               (service-symbol [this] '~service-sym)
+;
+;               Lifecycle
+;               ~@(si/protocol-fns lifecycle-fn-names fns-map)
+;
+;               ~@(if service-protocol-sym
+;                  `(~service-protocol-sym
+;                    ~@(si/protocol-fns service-fn-names fns-map))))))))))
+
 (defmacro service
-  "Create a Trapperkeeper ServiceDefinition.
-
-  First argument (optional) is a protocol indicating the list of functions that
-  this service exposes for use by other Trapperkeeper services.
-
-  Second argument is the dependency list; this should be a vector of vectors.
-  Each inner vector should begin with a keyword representation of the name of the
-  service protocol that the service depends upon.  All remaining items in the inner
-  vectors should be symbols representing functions that should be imported from
-  the service.
-
-  The remaining arguments should be function definitions for this service, specified
-  in the format that is used by a normal clojure `reify`.  The legal list of functions
-  that may be specified includes whatever functions are defined by this service's
-  protocol (if it has one), plus the list of functions in the `Lifecycle` protocol."
   [& forms]
   (let [{:keys [service-sym service-protocol-sym service-id service-fn-names
                 dependencies fns-map]}
-                      (si/parse-service-forms!
-                        lifecycle-fn-names
-                        forms)
-        ;;; we add 'context' to the dependencies list of all of the services.  we'll
-        ;;; use this to inject the service context so it's accessible from service functions
-        dependencies  (conj dependencies 'context)
-        output-schema (into {}
-                            (map (fn [f] [(keyword f) schema/Any])
-                                 (concat lifecycle-fn-names service-fn-names)))]
-    `(reify ServiceDefinition
-       (service-def-id [this] ~service-id)
+        (si/parse-service-forms!
+          lifecycle-fn-names
+          forms)
+        ;fns-map       (si/build-fns-map fns)
+        ;output-schema (si/build-output-schema fns-map)
+        output-schema (si/build-output-schema (keys service-fn-names))
+        service-ref   (atom nil)
+        ]
+    (println "FNS-MAP:" fns-map)
+    (println "lifecycle-fn-names:" lifecycle-fn-names)
+    (println "OUTPUT SCHEMA:" output-schema)
+    `(let [service-ref# (atom nil)]
+      (reify ServiceDefinition
+         (service-def-id [this] ~service-id)
+         ;; service map for prismatic graph
+         (service-map [this]
+           {~service-id
+            ;; the main service fnk for the app graph.  we add metadata to the fnk
+            ;; arguments list to specify an explicit output schema for the fnk
+            (fnk service-fnk# :- ~output-schema
+                ~dependencies
+                (let [svc# (reify
+                             Lifecycle
+                             ~@(si/fn-defs fns-map lifecycle-fn-names)
 
-       ;; service map for prismatic graph
-       (service-map [this]
-         {~service-id
-           ;; the main service fnk for the app graph.  we add metadata to the fnk
-           ;; arguments list to specify an explicit output schema for the fnk
-           (fnk f :- ~output-schema
-              ~dependencies
-              ;; create a function that exposes the service context to the service.
-              (let [~'service-id      (fn [] ~service-id)
-                    ~'service-context (fn [] (get ~'@context ~service-id))
-                    ~'get-service     (fn [svc-id#] (or (get-in ~'@context [:services-by-id svc-id#])
-                                                        (throw (IllegalArgumentException.
-                                                                 (format
-                                                                   "Call to 'get-service' failed; service '%s' does not exist."
-                                                                   svc-id#)))))
-                    ;; here we create an inner graph for this service.  we need
-                    ;; this in order to handle deps within a single service.
-                    service-map#      ~(si/prismatic-service-map
-                                         tk-service-fn-names
-                                         (concat lifecycle-fn-names service-fn-names)
-                                         fns-map)
-                    s-graph-inst#     (if (empty? service-map#)
-                                        {}
-                                        ((g/eager-compile service-map#) {}))]
-                s-graph-inst#))})
-
-       ;; service constructor function
-       (service-constructor [this]
-         ;; the constructor requires the main app graph and context atom as input
-         (fn [graph# context#]
-           (let [~'service-fns (graph# ~service-id)]
-             ;; now we instantiate the service and define all of its protocol functions
-             (reify
-               Service
-               (service-id [this] ~service-id)
-               (service-context [this] (get @context# ~service-id {}))
-               (get-service [this service-id]
-                 (or (get-in @context# [:services-by-id service-id])
-                     (throw (IllegalArgumentException.
-                              (format
-                                "Call to 'get-service' failed; service '%s' does not exist."
-                                service-id)))))
-               (get-services [this]
-                 (-> @context#
-                     :services-by-id
-                     (dissoc :ConfigService :ShutdownService)
-                     vals))
-               (service-symbol [this] '~service-sym)
-
-               Lifecycle
-               ~@(si/protocol-fns lifecycle-fn-names fns-map)
-
-               ~@(if service-protocol-sym
-                  `(~service-protocol-sym
-                    ~@(si/protocol-fns service-fn-names fns-map))))))))))
+                             ~@(if service-protocol-sym
+                               `(~service-protocol-sym
+                               ~@(si/fn-defs fns-map (vals service-fn-names)))))]
+                  (reset! service-ref# svc#)
+                  (si/build-service-map ~service-protocol-sym ~service-fn-names svc#)))})
+         (service-ref [this]
+           @service-ref#)
+         ))))
 
 (defmacro defservice
   [svc-name & forms]

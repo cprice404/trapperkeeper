@@ -198,6 +198,7 @@
 (defn restart-tk-apps
   "Call restart on all tk apps."
   []
+  (log/debug "SIGHUP handler restarting TK apps.")
   (locking sighup-lock
     (doseq [app @tk-apps]
       (a/restart app))))
@@ -207,6 +208,7 @@
   default handler terminates the process, so we always overwrite that. This
   function is idempotent."
   []
+  (log/debug "Registering SIGHUP handler for restarting TK apps")
   (reset! (beckon/signal-atom "HUP") #{restart-tk-apps}))
 
 ;;;; Application Shutdown Support
@@ -426,10 +428,10 @@
 (defn build-app*
   "Given a list of services and a map of configuration data, build an instance
   of a TrapperkeeperApp.  Services are not yet initialized or started."
-  [services config-data shutdown-reason-promise]
+  [services config-data-fn shutdown-reason-promise]
   {:pre  [(sequential? services)
           (every? #(satisfies? s/ServiceDefinition %) services)
-          (map? config-data)]
+          (ifn? config-data-fn)]
    :post [(satisfies? a/TrapperkeeperApp %)]}
   (let [;; this is the application context for this app instance.  its keys
         ;; will be the service ids, and values will be maps that represent the
@@ -437,7 +439,7 @@
         app-context (atom {})
         service-refs (atom {})
         services (conj services
-                       (config-service config-data)
+                       (config-service config-data-fn)
                        (initialize-shutdown-service! app-context
                                                      shutdown-reason-promise))
         service-map (apply merge (map s/service-map services))
@@ -480,15 +482,15 @@
 (defn boot-services*
   "Given the services to run and the map of configuration data, create the
   TrapperkeeperApp and boot the services.  Returns the TrapperkeeperApp."
-  [services config-data]
+  [services config-data-fn]
   {:pre  [(sequential? services)
           (every? #(satisfies? s/ServiceDefinition %) services)
-          (map? config-data)]
+          (ifn? config-data-fn)]
    :post [(satisfies? a/TrapperkeeperApp %)]}
   (let [shutdown-reason-promise (promise)
         app                     (try
                                   (build-app* services
-                                              config-data
+                                              config-data-fn
                                               shutdown-reason-promise)
                                   (catch Throwable t
                                     (log/error t "Error during app buildup!")

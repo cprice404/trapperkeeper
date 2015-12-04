@@ -156,7 +156,7 @@
   via str."
   [logger-id listen f]
   (with-started [listener (doto (log-event-listener listen) .start)]
-    (call-with-additional-log-appenders logger-id [listener] f)))
+    (call-with-log-appenders logger-id [listener] f)))
 
 (defmacro with-log-event-listener
   "Calls (listen event) for each logger-id event produced during the

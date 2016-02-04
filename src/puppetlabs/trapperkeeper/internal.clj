@@ -434,7 +434,9 @@
         ;; context for each individual service
         app-context (atom {:service-contexts {}
                            :ordered-services []
-                           :services-by-id {}})
+                           :services-by-id {}
+                           ;; TODO: add error handling stuff to agent
+                           :lifecycle-agent (agent {})})
         service-refs (atom {})
         services (conj services
                        (config-service config-data-fn)
@@ -484,6 +486,30 @@
             (deliver shutdown-reason-promise {:cause :service-error
                                               :error t})))))))
 
+(defn boot-services-on-agent*
+  ;; TODO docs and schema
+  [agent-state result-promise app]
+  (let [{:keys [shutdown-reason-promise]} (a/app-context app)]
+    (try
+      (a/init app)
+      (a/start app)
+      (catch Throwable t
+        (deliver result-promise t)
+        (deliver shutdown-reason-promise {:cause :service-error
+                                          :error t})))
+    (deliver result-promise app)))
+
+(defn boot-services-on-agent
+  ;; TODO docs and schema
+  [app]
+  (let [lifecycle-promise (promise)]
+    (send-off (:lifecycle-agent @(a/app-context app))
+              boot-services-on-agent* lifecycle-promise app)
+    (let [result @lifecycle-promise]
+      (if (instance? Throwable result)
+        (throw result)
+        result))))
+
 (defn boot-services*
   "Given the services to run and the map of configuration data, create the
   TrapperkeeperApp and boot the services.  Returns the TrapperkeeperApp."
@@ -500,13 +526,7 @@
                                   (catch Throwable t
                                     (log/error t "Error during app buildup!")
                                     (throw t)))]
-      (try
-        (a/init app)
-        (a/start app)
-        (catch Throwable t
-          (deliver shutdown-reason-promise {:cause :service-error
-                                            :error t})))
-      app)
-    )
+      (boot-services-on-agent app)
+      app))
 
 

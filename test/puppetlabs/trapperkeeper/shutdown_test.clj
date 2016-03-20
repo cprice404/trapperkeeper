@@ -470,8 +470,7 @@
       (is (nil? (internal/get-shutdown-reason shutdown-service)))
 
       ;; now we trigger a restart, which will call 'stop' for the first time,
-      ;; which will request a shutdown but will block on the stop-should-proceed
-      ;; promise
+      ;; which will block on the stop-should-proceed promise
       (internal/restart-tk-apps [app])
 
       ;; wait until we know that the stop has begun

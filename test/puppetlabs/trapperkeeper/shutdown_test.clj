@@ -446,7 +446,7 @@
           stop-should-proceed? (promise)
           lifecycle-events (atom [])
           svc (tk/service
-               [[:ShutdownService request-shutdown]]
+               []
                (init [this context]
                      (swap! lifecycle-events conj :init)
                      context)

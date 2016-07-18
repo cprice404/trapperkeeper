@@ -31,6 +31,27 @@
                                              (format "about %s" topic)]
                                             couplet))))
 
+(defprotocol LimerickService)
+
+;; this compiles
+#_(defservice limerick-service
+  LimerickService
+  {:required [[:SonnetService sonnet]]
+   :optional []}
+  (init [this context] context))
+
+;; this compiles
+#_(defservice limerick-service
+  []
+  (init [this context] context))
+
+;; this doesn't compile
+#_(defservice limerick-service
+  {:required [[:SonnetService sonnet]]
+   :optional []}
+  (init [this context] context))
+
+
 (deftest optional-deps-test
   (testing "when not using a protocol"
     (let [poetry-service (service {:required [HaikuService]

@@ -8,6 +8,10 @@
   :parent-project {:coords [puppetlabs/clj-parent "0.1.0-SNAPSHOT"]
                    :inherit [:managed-dependencies]}
 
+  ;; TODO: for testing only, remove this before merging
+  :repositories [["releases" "http://nexus.delivery.puppetlabs.net/content/repositories/releases/"]
+                 ["snapshots" "http://nexus.delivery.puppetlabs.net/content/repositories/snapshots/"]]
+
   ;; Abort when version ranges or version conflicts are detected in
   ;; dependencies. Also supports :warn to simply emit warnings.
   ;; requires lein 2.2.0+.
